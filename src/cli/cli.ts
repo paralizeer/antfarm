@@ -18,7 +18,7 @@ try {
 import { installWorkflow } from "../installer/install.js";
 import { uninstallAllWorkflows, uninstallWorkflow, checkActiveRuns } from "../installer/uninstall.js";
 import { getWorkflowStatus, listRuns, stopWorkflow } from "../installer/status.js";
-import { runWorkflow } from "../installer/run.js";
+import { runWorkflow, dryRunWorkflow } from "../installer/run.js";
 import { listBundledWorkflows } from "../installer/workflow-fetch.js";
 import { readRecentLogs } from "../lib/logger.js";
 import { getRecentEvents, getRunEvents, type AntfarmEvent } from "../installer/events.js";
@@ -685,8 +685,8 @@ async function main() {
     }
     const taskTitle = runArgs.join(" ").trim();
     if (dryRun) {
-      process.stderr.write("Dry-run mode not yet implemented. This flag will validate the workflow YAML, resolve template variables, and print the execution plan.\n");
-      process.exit(1);
+      await dryRunWorkflow({ workflowId: target, taskTitle });
+      return;
     }
     if (!taskTitle) { process.stderr.write("Missing task title.\n"); printUsage(); process.exit(1); }
     const run = await runWorkflow({ workflowId: target, taskTitle, notifyUrl });
