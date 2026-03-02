@@ -90,10 +90,11 @@ The workflow cannot advance until you report. Your session ending without report
 const DEFAULT_POLLING_TIMEOUT_SECONDS = 120;
 const DEFAULT_POLLING_MODEL = "default";
 
-export function buildPollingPrompt(workflowId: string, agentId: string, workModel?: string): string {
+export function buildPollingPrompt(workflowId: string, agentId: string, workModel?: string, workTimeoutSeconds?: number): string {
   const fullAgentId = `${workflowId}_${agentId}`;
   const cli = resolveAntfarmCli();
   const model = workModel ?? "default";
+  const timeoutSec = workTimeoutSeconds ?? DEFAULT_AGENT_TIMEOUT_SECONDS;
   const workPrompt = buildWorkPrompt(workflowId, agentId);
 
   return `Step 1 — Quick check for pending work (lightweight, no side effects):
@@ -112,6 +113,7 @@ If JSON is returned, parse it to extract stepId, runId, and input fields.
 Then call sessions_spawn with these parameters:
 - agentId: "${fullAgentId}"
 - model: "${model}"
+- runTimeoutSeconds: ${timeoutSec}
 - task: The full work prompt below, followed by "\\n\\nCLAIMED STEP JSON:\\n" and the exact JSON output from step claim.
 
 Full work prompt to include in the spawned task:
@@ -140,7 +142,9 @@ export async function setupAgentCrons(workflow: WorkflowSpec): Promise<void> {
     // Two-phase: Phase 1 uses cheap polling model + minimal prompt
     const pollingModel = agent.pollingModel ?? workflowPollingModel;
     const workModel = agent.model; // Phase 2 model (passed to sessions_spawn via prompt)
-    const prompt = buildPollingPrompt(workflow.id, agent.id, workModel);
+    // Work agent timeout: per-agent > workflow default > library default (30 min)
+    const workTimeoutSeconds = agent.timeoutSeconds ?? DEFAULT_AGENT_TIMEOUT_SECONDS;
+    const prompt = buildPollingPrompt(workflow.id, agent.id, workModel, workTimeoutSeconds);
     const timeoutSeconds = workflowPollingTimeout;
 
     const result = await createAgentCronJob({
