@@ -509,6 +509,7 @@ export function claimStep(agentId: string): ClaimResult {
     id: string; step_id: string; run_id: string; input_template: string; type: string;
     loop_config: string | null;
     step_index: number;
+    current_story_id: string | null; status: string;
   } | undefined;
 
   if (!step) return { found: false };
@@ -533,6 +534,15 @@ export function claimStep(agentId: string): ClaimResult {
 
   // T6: Loop step claim logic
   if (step.type === "loop") {
+    // Safety: if step is "running" but has no current_story_id, re-claim a pending story
+    if (!step.current_story_id && step.status === "running") {
+      logger.warn(`Safety reset: step ${step.step_id} is running but has no current_story_id, resetting to pending`);
+      db.prepare(
+        "UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
+      ).run(step.id);
+      step.status = "pending"; // Update local state
+    }
+    
     const loopConfig: LoopConfig | null = step.loop_config ? JSON.parse(step.loop_config) : null;
     if (loopConfig?.over === "stories") {
       if (!runHasStories(step.run_id)) {
@@ -618,6 +628,10 @@ export function claimStep(agentId: string): ClaimResult {
       context["current_story"] = formatStoryForTemplate(story);
       context["current_story_id"] = story.storyId;
       context["current_story_title"] = story.title;
+      context["current_story.id"] = story.storyId;
+      context["current_story.title"] = story.title;
+      context["current_story.files"] = nextStory.files || "";
+      context["current_story.description"] = story.description;
       context["completed_stories"] = formatCompletedStories(allStories);
       context["stories_remaining"] = String(pendingCount);
       context["progress"] = readProgressFile(step.run_id);
@@ -700,6 +714,10 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
   for (const [key, value] of Object.entries(parsed)) {
     context[key] = value;
   }
+
+  // Set defaults for reviewer template keys if not provided
+  if (!context["commit"]) context["commit"] = "none";
+  if (!context["test_result"]) context["test_result"] = "none";
 
   db.prepare(
     "UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?"
@@ -856,6 +874,8 @@ function checkLoopContinuation(runId: string, loopStepId: string): { advanced: b
   const loopStatus = db.prepare(
     "SELECT status FROM steps WHERE id = ?"
   ).get(loopStepId) as { status: string } | undefined;
+
+  logger.info(`checkLoopContinuation: runId=${runId}, loopStepId=${loopStepId}, pendingStory=${!!pendingStory}, loopStatus=${loopStatus?.status}`);
 
   if (pendingStory) {
     if (loopStatus?.status === "failed") {

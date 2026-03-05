@@ -9,7 +9,7 @@ description: |
   Verifier confirms each fix. Tester runs final integration validation. PR agent creates the pull request.
 
 polling:
-  model: default
+  model: minimax/MiniMax-M2.5
   timeoutSeconds: 120
 
 agents:
