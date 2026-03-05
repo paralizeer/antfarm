@@ -54,6 +54,32 @@ export function parseOutputKeyValues(output: string): Record<string, string> {
 }
 
 /**
+ * Validate that step output contains all required keys specified in expects.
+ * Throws an error if any required keys are missing.
+ * The expects format is "KEY1: value1, KEY2: value2" - we only check key presence.
+ */
+function validateStepOutput(expects: string, output: string): void {
+  if (!expects?.trim()) return;
+
+  // Parse expected keys from expects string (format: "KEY1: value1, KEY2: value2")
+  const expectedKeys = expects.split(",").map(s => s.trim().split(":")[0].toLowerCase()).filter(k => k);
+
+  // Parse actual output keys
+  const actualKeys = parseOutputKeyValues(output);
+
+  // Check each expected key is present
+  const missingKeys = expectedKeys.filter(key => !actualKeys.hasOwnProperty(key));
+
+  if (missingKeys.length > 0) {
+    throw new Error(
+      `Step output missing required keys: ${missingKeys.join(", ")}. ` +
+      `Expected keys from 'expects': ${expects}. ` +
+      `Add these keys to your output before completing the step.`
+    );
+  }
+}
+
+/**
  * Fire-and-forget cron teardown when a run ends.
  * Looks up the workflow_id for the run and tears down crons if no other active runs.
  */
@@ -694,10 +720,13 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
   const db = getDb();
 
   const step = db.prepare(
-    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id FROM steps WHERE id = ?"
-  ).get(stepId) as { id: string; run_id: string; step_id: string; step_index: number; type: string; loop_config: string | null; current_story_id: string | null } | undefined;
+    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id, expects FROM steps WHERE id = ?"
+  ).get(stepId) as { id: string; run_id: string; step_id: string; step_index: number; type: string; loop_config: string | null; current_story_id: string | null; expects: string } | undefined;
 
   if (!step) throw new Error(`Step not found: ${stepId}`);
+
+  // Validate expected output keys before processing
+  validateStepOutput(step.expects, output);
 
   // Guard: don't process completions for failed runs
   const runCheck = db.prepare("SELECT status FROM runs WHERE id = ?").get(step.run_id) as { status: string } | undefined;
