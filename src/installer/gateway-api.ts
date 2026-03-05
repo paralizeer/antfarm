@@ -56,6 +56,79 @@ async function getGatewayConfig(): Promise<GatewayConfig> {
 }
 
 // ---------------------------------------------------------------------------
+// Resilience: Retry with exponential backoff
+// ---------------------------------------------------------------------------
+
+const RETRY_BASE_DELAY_MS = 200;
+const RETRY_MAX_DELAY_MS = 5000;
+const RETRY_MAX_ATTEMPTS = 3;
+
+/** Check if an error is transient and worth retrying */
+function isTransientError(err: unknown): boolean {
+  if (err instanceof TypeError && err.message.includes("fetch")) {
+    // Network errors, DNS failures, etc.
+    return true;
+  }
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    // Connection refused, timeout, reset, network unreachable
+    return msg.includes("econnrefused") ||
+           msg.includes("timeout") ||
+           msg.includes("econnreset") ||
+           msg.includes("network") ||
+           msg.includes("enotfound");
+  }
+  return false;
+}
+
+/** Sleep for a given number of ms */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Retry a fetch operation with exponential backoff */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit & { timeoutMs?: number },
+  attempt = 1
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = options.timeoutMs
+    ? setTimeout(() => controller.abort(), options.timeoutMs)
+    : null;
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (err) {
+    if (attempt >= RETRY_MAX_ATTEMPTS) {
+      throw err;
+    }
+
+    // Only retry on transient errors
+    if (!isTransientError(err)) {
+      throw err;
+    }
+
+    // Exponential backoff: 200ms, 400ms, 800ms...
+    const delay = Math.min(
+      RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1),
+      RETRY_MAX_DELAY_MS
+    );
+
+    console.error(`[gateway-api] Transient error (attempt ${attempt}/${RETRY_MAX_ATTEMPTS}), retrying in ${delay}ms: ${err}`);
+
+    await sleep(delay);
+    return fetchWithRetry(url, options, attempt + 1);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // OpenClaw CLI fallback helpers
 // ---------------------------------------------------------------------------
 
@@ -193,10 +266,11 @@ async function createAgentCronJobHTTP(job: {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithRetry(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
       body: JSON.stringify({ tool: "cron", args: { action: "add", job }, sessionKey: "agent:main:main" }),
+      timeoutMs: 30000,
     });
 
     if (isTransientGatewayFailure(response.status)) return null; // signal CLI fallback
@@ -226,10 +300,11 @@ export async function checkCronToolAvailable(): Promise<{ ok: boolean; error?: s
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithRetry(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
       body: JSON.stringify({ tool: "cron", args: { action: "list" } }),
+      timeoutMs: 30000,
     });
 
     if (response.ok) return { ok: true };
@@ -279,10 +354,11 @@ async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: str
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithRetry(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
       body: JSON.stringify({ tool: "cron", args: { action: "list" }, sessionKey: "agent:main:main" }),
+      timeoutMs: 30000,
     });
 
     if (isTransientGatewayFailure(response.status)) return null;
@@ -334,10 +410,11 @@ async function deleteCronJobHTTP(jobId: string): Promise<{ ok: boolean; error?: 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithRetry(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
       body: JSON.stringify({ tool: "cron", args: { action: "remove", id: jobId }, sessionKey: "agent:main:main" }),
+      timeoutMs: 30000,
     });
 
     if (isTransientGatewayFailure(response.status)) return null;
@@ -381,10 +458,11 @@ export async function sendSessionMessage(params: { sessionKey: string; message: 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithRetry(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
+      timeoutMs: 30000,
     });
 
     if (response.ok) {
