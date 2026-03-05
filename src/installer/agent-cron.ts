@@ -88,12 +88,12 @@ The workflow cannot advance until you report. Your session ending without report
 }
 
 const DEFAULT_POLLING_TIMEOUT_SECONDS = 120;
-const DEFAULT_POLLING_MODEL = "default";
+const DEFAULT_POLLING_MODEL = "minimax/MiniMax-M2.5";
 
 export function buildPollingPrompt(workflowId: string, agentId: string, workModel?: string, workTimeoutSeconds?: number): string {
   const fullAgentId = `${workflowId}_${agentId}`;
   const cli = resolveAntfarmCli();
-  const model = workModel ?? "default";
+  const model = workModel ?? "minimax/MiniMax-M2.5";
   const timeoutSec = workTimeoutSeconds ?? DEFAULT_AGENT_TIMEOUT_SECONDS;
   const workPrompt = buildWorkPrompt(workflowId, agentId);
 
