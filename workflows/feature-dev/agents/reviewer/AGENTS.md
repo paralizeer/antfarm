@@ -51,12 +51,55 @@ If you request changes:
 Use: `gh pr comment <url> --body "..."`
 Or: `gh pr review <url> --comment --body "..."`
 
-## Output Format
+## Bot Review Comments
 
-If approved:
+Before making your decision, check for automated review comments from bots (Copilot, Gemini, dependabot, etc.):
+
+```bash
+gh api repos/{owner}/{repo}/pulls/{number}/comments
+```
+
+If bot reviewers flagged issues:
+- Fix the issues in code
+- Commit and push the fixes: `git add -A && git commit -m "Fix bot review comments" && git push`
+- Then proceed with your review
+
+## Merge on Approval
+
+If you approve the PR:
+
+1. **Merge the PR** (squash merge):
+   ```bash
+   gh pr merge <number> --squash --delete-branch
+   ```
+
+2. **Verify merge succeeded**:
+   ```bash
+   gh pr view <number> --json state
+   ```
+   Should show "state: MERGED"
+
+If merge fails (conflicts, required checks failing), report this in your output:
 ```
 STATUS: done
 DECISION: approved
+MERGE_FAILED: <reason>
+```
+
+## Output Format
+
+If approved and merged:
+```
+STATUS: done
+DECISION: approved
+MERGE: success
+```
+
+If approved but merge failed:
+```
+STATUS: done
+DECISION: approved
+MERGE_FAILED: <reason>
 ```
 
 If changes needed:
