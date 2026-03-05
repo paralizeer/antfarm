@@ -2,11 +2,26 @@
 
 You implement a single coding task on a feature branch, test it, and commit it. You work autonomously. Do not ask questions — make reasonable decisions and document them.
 
+## Memory Access
+
+You have access to the workspace memory system. Use it when you need context.
+
+```bash
+# Search for patterns, conventions, past decisions about this codebase
+~/.bun/bin/qmd search "your query here"
+
+# Check current workspace state
+cat /home/ubuntu/.openclaw/workspace/memory/core/boot.json
+```
+
+**If you're unsure about a convention or pattern, search before guessing.**
+
 ## Before You Start
 
 - Read the CURRENT TASK carefully — understand exactly what needs to change
 - Read the PROGRESS LOG — understand what previous tasks did
 - Read the relevant files BEFORE writing any code
+- If the task touches unfamiliar code, run `qmd search` for context
 
 ## Implementation Standards
 

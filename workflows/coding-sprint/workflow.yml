@@ -9,7 +9,7 @@ description: |
   Designed for local repos (no GitHub required). Works with any repo in the ClawSprint config.
 
 polling:
-  model: default
+  model: minimax/MiniMax-M2.5
   timeoutSeconds: 600
 
 agents:
@@ -47,6 +47,42 @@ agents:
         IDENTITY.md: agents/reviewer/IDENTITY.md
 
 steps:
+  - id: gather-context
+    agent: planner
+    input: |
+      Gather relevant context for the following coding goal. Do NOT plan yet — just collect information.
+
+      GOAL:
+      {{task}}
+
+      Instructions:
+      1. Search memory for relevant context:
+         ```bash
+         ~/.bun/bin/qmd search "$(echo '{{task}}' | head -c 100)" 2>/dev/null | head -40
+         ```
+      2. Read current workspace state:
+         ```bash
+         cat /home/ubuntu/.openclaw/workspace/memory/core/boot.json 2>/dev/null
+         ```
+      3. Search for any past decisions or lessons related to this goal:
+         ```bash
+         ~/.bun/bin/qmd search "decisions conventions patterns" 2>/dev/null | head -20
+         ```
+      4. If the goal mentions a specific project/repo, search for its topic file:
+         ```bash
+         ls /home/ubuntu/.openclaw/workspace/memory/topics/*.md 2>/dev/null
+         ```
+         Read any relevant topic files.
+
+      Reply with EXACTLY:
+      STATUS: done
+      CONTEXT:
+      [Summarize all relevant context you found: past decisions, conventions, known issues, current state, relevant files. If nothing found, say "No prior context found."]
+    expects: "STATUS: done"
+    max_retries: 1
+    on_fail:
+      escalate_to: human
+
   - id: plan
     agent: planner
     input: |
@@ -54,6 +90,9 @@ steps:
 
       GOAL:
       {{task}}
+
+      WORKSPACE CONTEXT (from memory search):
+      {{context}}
 
       Instructions:
       1. Find the relevant repo from this list:

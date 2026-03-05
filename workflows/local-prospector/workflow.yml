@@ -1,0 +1,86 @@
+id: local-prospector
+name: Local Business Prospector
+version: 1
+description: |
+  Find local Chilean businesses that need WhatsApp automation and chatbots.
+  Targets: manufacturing, restaurants, salons, clinics, workshops.
+
+polling:
+  model: minimax/MiniMax-M2.5
+  timeoutSeconds: 300
+
+agents:
+  - id: prospector
+    name: Local Prospector
+    role: analysis
+    description: Finds local businesses needing automation services.
+    workspace:
+      baseDir: agents/prospector
+      files:
+        AGENTS.md: agents/prospector/AGENTS.md
+        SOUL.md: agents/prospector/SOUL.md
+
+steps:
+  - id: search
+    agent: prospector
+    input: |
+      You are a local business prospecting agent for Chilean automation services.
+
+      TASK: Find businesses in Chile that need WhatsApp automation, chatbots, or general automation.
+
+      ## Target Businesses
+      - Manufacturing (factories, workshops, talleres)
+      - Restaurants and cafes
+      - Salons, spas, barberías
+      - Medical/dental clinics
+      - Auto repair shops
+      - Small retail stores
+
+      ## Search Queries (run each)
+      Run these web searches:
+
+      Manufacturing:
+      - "fabrica Chile sin pagina web"
+      - "taller mecanico Santiago Chile contacto"
+      - "manufactura Chile pequena empresa"
+
+      Restaurants:
+      - "restaurante Santiago sin reserva online"
+      - "cafe Santiago WhatsApp"
+
+      Services:
+      - "salon belleza Santiago sin pagina web"
+      - "clinica dental Chile WhatsApp"
+      - "taller automotriz Santiago Chile"
+
+      General:
+      - "negocio familiar Chile automatizacion"
+      - "Pyme Chile tecnologia 2026"
+
+      ## For Each Business Found:
+      Extract:
+      - Business Name
+      - Type (restaurant, salon, factory, etc.)
+      - Location (commune/city)
+      - Website (if any)
+      - Apparent Automation Needs
+      - Contact Name (if found)
+      - Phone (if found)
+      - Source URL
+
+      ## Output
+      Create CSV:
+      /home/ubuntu/.openclaw/workspace/local-prospects/2026-03-02.csv
+
+      Format:
+      Business,Type,Location,Website,AutomationNeeds,Contact,Phone,Source
+
+      If file exists, append new rows.
+
+      Reply with:
+      STATUS: done
+      BUSINESSES_FOUND: [count]
+    expects: "STATUS: done"
+    max_retries: 1
+    on_fail:
+      escalate_to: human
