@@ -256,7 +256,7 @@ export async function checkCronToolAvailable(): Promise<{ ok: boolean; error?: s
   }
 }
 
-export async function listCronJobs(): Promise<{ ok: boolean; jobs?: Array<{ id: string; name: string }>; error?: string }> {
+export async function listCronJobs(): Promise<{ ok: boolean; jobs?: Array<{ id: string; name: string; lastStatus?: string; consecutiveErrors?: number; enabled?: boolean }>; error?: string }> {
   // --- Try HTTP first ---
   const httpResult = await listCronJobsHTTP();
   if (httpResult !== null) return httpResult;
@@ -273,7 +273,7 @@ export async function listCronJobs(): Promise<{ ok: boolean; jobs?: Array<{ id: 
 }
 
 /** HTTP-only list. Returns null on 404/network error. */
-async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: string; name: string }>; error?: string } | null> {
+async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: string; name: string; lastStatus?: string; consecutiveErrors?: number; enabled?: boolean }>; error?: string } | null> {
   const gateway = await getGatewayConfig();
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -296,12 +296,18 @@ async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: str
       return { ok: false, error: result.error?.message ?? "Unknown error" };
     }
 
-    let jobs: Array<{ id: string; name: string }> = [];
+    let jobs: Array<{ id: string; name: string; lastStatus?: string; consecutiveErrors?: number; enabled?: boolean }> = [];
     const content = result.result?.content;
     if (Array.isArray(content) && content[0]?.text) {
       try {
         const parsed = JSON.parse(content[0].text);
-        jobs = parsed.jobs ?? [];
+        jobs = (parsed.jobs ?? []).map((j: any) => ({
+          id: j.id,
+          name: j.name,
+          lastStatus: j.state?.lastStatus,
+          consecutiveErrors: j.state?.consecutiveErrors,
+          enabled: j.enabled,
+        }));
       } catch { /* fallback */ }
     }
     if (jobs.length === 0) {
@@ -361,6 +367,49 @@ export async function deleteAgentCronJobs(namePrefix: string): Promise<void> {
     if (job.name.startsWith(namePrefix)) {
       await deleteCronJob(job.id);
     }
+  }
+}
+
+/**
+ * Disable a cron job by ID (circuit breaker action).
+ */
+export async function disableCronJob(jobId: string): Promise<{ ok: boolean; error?: string }> {
+  // --- Try HTTP first ---
+  const httpResult = await disableCronJobHTTP(jobId);
+  if (httpResult !== null) return httpResult;
+
+  // --- CLI fallback ---
+  try {
+    await runCli(["cron", "disable", jobId, "--json"]);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+  }
+}
+
+/** HTTP-only disable. Returns null on 404/network error. */
+async function disableCronJobHTTP(jobId: string): Promise<{ ok: boolean; error?: string } | null> {
+  const gateway = await getGatewayConfig();
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
+
+    const response = await fetch(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ tool: "cron", args: { action: "disable", id: jobId }, sessionKey: "agent:main:main" }),
+    });
+
+    if (isTransientGatewayFailure(response.status)) return null;
+
+    if (!response.ok) {
+      return { ok: false, error: `Gateway returned ${response.status}` };
+    }
+
+    const result = await response.json();
+    return result.ok ? { ok: true } : { ok: false, error: result.error?.message ?? "Unknown error" };
+  } catch {
+    return null;
   }
 }
 
