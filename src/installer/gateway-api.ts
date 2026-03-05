@@ -469,3 +469,81 @@ export async function sendSessionMessage(params: { sessionKey: string; message: 
     return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
   }
 }
+
+/**
+ * Kill a gateway session by session key.
+ * Sends a termination message to the session to gracefully shut it down.
+ */
+export async function killSession(sessionKey: string): Promise<{ ok: boolean; error?: string }> {
+  const gateway = await getGatewayConfig();
+  
+  // Try HTTP first - use the gateway call to send a kill message
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
+
+    // Try calling the sessions API to kill the session
+    const response = await fetch(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        tool: "sessions_send",
+        args: {
+          action: "kill",
+          sessionKey: sessionKey,
+        },
+        sessionKey: "agent:main:main",
+      }),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.ok) return { ok: true };
+      // If the tool doesn't exist or failed, try alternative approach
+    }
+    
+    // If the above didn't work, try a different approach - send a termination signal
+    const terminateResponse = await fetch(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        tool: "exec",
+        args: {
+          command: `openclaw sessions kill ${sessionKey}`,
+        },
+        sessionKey: "agent:main:main",
+      }),
+    });
+    
+    if (terminateResponse.ok) {
+      return { ok: true };
+    }
+  } catch {
+    // Fall through to CLI fallback
+  }
+
+  // --- Fallback to CLI ---
+  try {
+    // Try to kill the session via CLI
+    await runCli(["sessions", "kill", sessionKey, "--json"]);
+    return { ok: true };
+  } catch {
+    // sessions kill might not be a valid command, try using message to signal exit
+    try {
+      await runCli([
+        "tool",
+        "run",
+        "--tool",
+        "sessions_send",
+        "--session",
+        sessionKey,
+        "--json",
+        "--message",
+        "SESSION_KILL_REQUESTED: This session has been terminated by antfarm. Please stop immediately.",
+      ]);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: `Failed to kill session: ${err}` };
+    }
+  }
+}

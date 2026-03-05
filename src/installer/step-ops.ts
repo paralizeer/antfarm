@@ -507,8 +507,10 @@ const CLEANUP_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Find and claim a pending step for an agent, returning the resolved input.
+ * @param agentId - The agent ID claiming the step
+ * @param sessionKey - Optional session key to track the gateway session for this step
  */
-export function claimStep(agentId: string): ClaimResult {
+export function claimStep(agentId: string, sessionKey?: string): ClaimResult {
   // Throttle cleanup: run at most once every 5 minutes across all agents
   const now = Date.now();
   if (now - lastCleanupTime >= CLEANUP_THROTTLE_MS) {
@@ -625,8 +627,8 @@ export function claimStep(agentId: string): ClaimResult {
         "UPDATE stories SET status = 'running', updated_at = datetime('now') WHERE id = ?"
       ).run(nextStory.id);
       db.prepare(
-        "UPDATE steps SET status = 'running', current_story_id = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(nextStory.id, step.id);
+        "UPDATE steps SET status = 'running', current_story_id = ?, session_key = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(nextStory.id, sessionKey || null, step.id);
 
       const wfId = getWorkflowId(step.run_id);
       emitEvent({ ts: new Date().toISOString(), event: "step.running", runId: step.run_id, workflowId: wfId, stepId: step.step_id, agentId: agentId });
@@ -682,8 +684,8 @@ export function claimStep(agentId: string): ClaimResult {
 
   // Single step: existing logic
   db.prepare(
-    "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
-  ).run(step.id);
+    "UPDATE steps SET status = 'running', session_key = ?, updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+  ).run(sessionKey || null, step.id);
   emitEvent({ ts: new Date().toISOString(), event: "step.running", runId: step.run_id, workflowId: getWorkflowId(step.run_id), stepId: step.step_id, agentId: agentId });
   logger.info(`Step claimed by ${agentId}`, { runId: step.run_id, stepId: step.step_id });
 
@@ -720,8 +722,8 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
   const db = getDb();
 
   const step = db.prepare(
-    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id, expects FROM steps WHERE id = ?"
-  ).get(stepId) as { id: string; run_id: string; step_id: string; step_index: number; type: string; loop_config: string | null; current_story_id: string | null; expects: string } | undefined;
+    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id, expects, session_key FROM steps WHERE id = ?"
+  ).get(stepId) as { id: string; run_id: string; step_id: string; step_index: number; type: string; loop_config: string | null; current_story_id: string | null; expects: string; session_key: string | null } | undefined;
 
   if (!step) throw new Error(`Step not found: ${stepId}`);
 
@@ -784,10 +786,10 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
         db.prepare(
           "UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
         ).run(verifyStep.id);
-        // Loop step stays 'running'
+        // Loop step stays 'running' - preserve existing session_key
         db.prepare(
-          "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ?"
-        ).run(step.id);
+          "UPDATE steps SET status = 'running', session_key = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(step.session_key, step.id);
         return { advanced: false, runCompleted: false };
       }
     }
