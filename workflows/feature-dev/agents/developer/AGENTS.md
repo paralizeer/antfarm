@@ -85,20 +85,29 @@ CHANGES: What you implemented
 TESTS: What tests you wrote
 ```
 
-Then pipe this output to step complete:
+## ⚠️ CRITICAL: Complete Your Step
+
+**You MUST call `step complete` after outputting your status, or the workflow will be stuck forever.**
+
+After outputting the format above, you MUST run:
+
 ```bash
+# Write output to file first (shell escaping breaks direct args)
 cat <<'ANTFARM_EOF' > /tmp/antfarm-step-output.txt
 STATUS: done
-REPO: /home/ubuntu/repo-name
+REPO: /path/to/repo
 BRANCH: feature-branch-name
-COMMITS: abc123
+COMMITS: abc123, def456
 CHANGES: What you implemented
 TESTS: What tests you wrote
 ANTFARM_EOF
+
+# Then pipe to step complete - replace <stepId> with your actual step ID
 cat /tmp/antfarm-step-output.txt | node /home/ubuntu/.openclaw/workspace/antfarm/dist/cli/cli.js step complete "<stepId>"
 ```
 
-**This is non-negotiable. Your session will end after this, and the next story will be picked up by a fresh session.**
+**This is non-negotiable. Your session will end after this call, and the next story will be picked up by a fresh session.**
+>>>>>>> d484c7b (fix(agents): add explicit step complete instructions to all agent AGENTS.md)
 
 ## Story-Based Execution
 

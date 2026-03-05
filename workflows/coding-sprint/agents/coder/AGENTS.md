@@ -86,6 +86,27 @@ TEST_RESULT: PASSED | FAILED | NO_TESTS | SYNTAX_OK
 COMMIT: [git commit hash]
 ```
 
+## ⚠️ CRITICAL: Complete Your Step
+
+**You MUST call `step complete` after outputting your status, or the workflow will be stuck forever.**
+
+After outputting the format above, you MUST run:
+
+```bash
+# Write output to file first (shell escaping breaks direct args)
+cat <<'ANTFARM_EOF' > /tmp/antfarm-step-output.txt
+STATUS: done
+CHANGES: [bullet list of changes]
+TEST_RESULT: PASSED | FAILED | NO_TESTS | SYNTAX_OK
+COMMIT: [git commit hash]
+ANTFARM_EOF
+
+# Then pipe to step complete - replace <stepId> with your actual step ID
+cat /tmp/antfarm-step-output.txt | node /home/ubuntu/.openclaw/workspace/antfarm/dist/cli/cli.js step complete "<stepId>"
+```
+
+**This is non-negotiable. Your session will end after this call.**
+
 ## Rules
 
 - Never modify `.env` files or secrets
