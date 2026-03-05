@@ -83,6 +83,29 @@ CHANGES: What you implemented
 TESTS: What tests you wrote
 ```
 
+## ⚠️ CRITICAL: Complete Your Step
+
+**You MUST call `step complete` after outputting your status, or the workflow will be stuck forever.**
+
+After outputting the format above, you MUST run:
+
+```bash
+# Write output to file first (shell escaping breaks direct args)
+cat <<'ANTFARM_EOF' > /tmp/antfarm-step-output.txt
+STATUS: done
+REPO: /path/to/repo
+BRANCH: feature-branch-name
+COMMITS: abc123, def456
+CHANGES: What you implemented
+TESTS: What tests you wrote
+ANTFARM_EOF
+
+# Then pipe to step complete - replace <stepId> with your actual step ID
+cat /tmp/antfarm-step-output.txt | node /home/ubuntu/.openclaw/workspace/antfarm/dist/cli/cli.js step complete "<stepId>"
+```
+
+**This is non-negotiable. Your session will end after this call, and the next story will be picked up by a fresh session.**
+
 ## Story-Based Execution
 
 You work on **ONE user story per session**. A fresh session is started for each story. You have no memory of previous sessions except what's in `progress-{{run_id}}.txt`.
