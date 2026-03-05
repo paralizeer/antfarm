@@ -420,3 +420,39 @@ export async function sendSessionMessage(params: { sessionKey: string; message: 
     return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
   }
 }
+
+/**
+ * Kill a gateway session by session key.
+ * Uses the sessions_send tool with action "kill".
+ */
+export async function killSession(sessionKey: string): Promise<{ ok: boolean; error?: string }> {
+  const gateway = await getGatewayConfig();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
+
+  try {
+    const response = await fetch(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        tool: "sessions_send",
+        args: {
+          action: "kill",
+          sessionKey: sessionKey,
+        },
+        sessionKey: "agent:main:main",
+      }),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.ok) return { ok: true };
+      return { ok: false, error: result.error?.message ?? "Unknown error" };
+    }
+
+    const text = await response.text();
+    return { ok: false, error: `Gateway returned ${response.status}: ${text}` };
+  } catch (err) {
+    return { ok: false, error: `Failed to kill session: ${err}` };
+  }
+}
