@@ -570,6 +570,43 @@ export function claimStep(agentId: string, sessionKey?: string): ClaimResult {
       ).run(step.id);
       step.status = "pending"; // Update local state
     }
+
+    // Safety: if step is "running" with a current_story_id, check if story is already done
+    // This handles the case where agent completed story but session exited before calling step complete
+    if (step.current_story_id && step.status === "running") {
+      const storyCheck = db.prepare(
+        "SELECT status FROM stories WHERE id = ?"
+      ).get(step.current_story_id) as { status: string } | undefined;
+
+      if (storyCheck?.status === "done") {
+        // Story is done but step wasn't completed - advance to next story
+        logger.info(`Story already done (agent exited before step complete), advancing: ${step.current_story_id}`);
+        // Clear current_story_id and call checkLoopContinuation to advance
+        db.prepare(
+          "UPDATE steps SET current_story_id = NULL, updated_at = datetime('now') WHERE id = ?"
+        ).run(step.id);
+        checkLoopContinuation(step.run_id, step.id);
+        return { found: false };
+      }
+
+      // Safety: if story is "running" but abandoned (no update for > 10 minutes), reset it
+      // This handles the case where agent session exited mid-story
+      const STORY_ABANDON_MS = 10 * 60 * 1000; // 10 minutes
+      const storyAge = db.prepare(
+        "SELECT (julianday('now') - julianday(updated_at)) * 86400000 as age_ms FROM stories WHERE id = ?"
+      ).get(step.current_story_id) as { age_ms: number } | undefined;
+
+      if (storyAge && storyAge.age_ms > STORY_ABANDON_MS) {
+        logger.warn(`Story abandoned (no update > 10 min), resetting: ${step.current_story_id}`);
+        db.prepare(
+          "UPDATE stories SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
+        ).run(step.current_story_id);
+        db.prepare(
+          "UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?"
+        ).run(step.id);
+        step.status = "pending"; // Update local state to allow re-claim
+      }
+    }
     
     const loopConfig: LoopConfig | null = step.loop_config ? JSON.parse(step.loop_config) : null;
     if (loopConfig?.over === "stories") {
