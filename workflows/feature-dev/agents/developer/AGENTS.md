@@ -72,7 +72,9 @@ When creating the PR:
 - Description explaining what you did and why
 - Note what was tested
 
-## Output Format
+## Output Format and Completion
+
+⚠️ CRITICAL: After finishing your work, you MUST call `antfarm step complete` to report completion. If you don't, the workflow will be stuck forever.
 
 ```
 STATUS: done
@@ -82,6 +84,21 @@ COMMITS: abc123, def456
 CHANGES: What you implemented
 TESTS: What tests you wrote
 ```
+
+Then pipe this output to step complete:
+```bash
+cat <<'ANTFARM_EOF' > /tmp/antfarm-step-output.txt
+STATUS: done
+REPO: /home/ubuntu/repo-name
+BRANCH: feature-branch-name
+COMMITS: abc123
+CHANGES: What you implemented
+TESTS: What tests you wrote
+ANTFARM_EOF
+cat /tmp/antfarm-step-output.txt | node /home/ubuntu/.openclaw/workspace/antfarm/dist/cli/cli.js step complete "<stepId>"
+```
+
+**This is non-negotiable. Your session will end after this, and the next story will be picked up by a fresh session.**
 
 ## Story-Based Execution
 
