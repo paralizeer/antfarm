@@ -8,7 +8,7 @@ import { execSync, execFileSync } from "node:child_process";
 import { teardownWorkflowCronsIfIdle } from "./agent-cron.js";
 import { emitEvent } from "./events.js";
 import { logger } from "../lib/logger.js";
-import { sendSessionMessage } from "./gateway-api.js";
+import { sendSessionMessage, killSession } from "./gateway-api.js";
 import { getMaxRoleTimeoutSeconds } from "./install.js";
 import { loadWorkflowSpec } from "./workflow-spec.js";
 import { resolveWorkflowDir } from "./paths.js";
@@ -304,8 +304,8 @@ export function cleanupAbandonedSteps(): void {
 
   // Find running steps that haven't been updated recently
   const abandonedSteps = db.prepare(
-    "SELECT id, step_id, run_id, retry_count, max_retries, type, current_story_id, loop_config, abandoned_count FROM steps WHERE status = 'running' AND (julianday('now') - julianday(updated_at)) * 86400000 > ?"
-  ).all(thresholdMs) as { id: string; step_id: string; run_id: string; retry_count: number; max_retries: number; type: string; current_story_id: string | null; loop_config: string | null; abandoned_count: number }[];
+    "SELECT id, step_id, run_id, retry_count, max_retries, type, current_story_id, loop_config, abandoned_count, session_key FROM steps WHERE status = 'running' AND (julianday('now') - julianday(updated_at)) * 86400000 > ?"
+  ).all(thresholdMs) as { id: string; step_id: string; run_id: string; retry_count: number; max_retries: number; type: string; current_story_id: string | null; loop_config: string | null; abandoned_count: number; session_key: string | null }[];
 
   for (const step of abandonedSteps) {
     if (step.type === "loop" && !step.current_story_id && step.loop_config) {
@@ -1087,7 +1087,7 @@ export async function failStep(stepId: string, error: string): Promise<{ retryin
   const db = getDb();
 
   const step = db.prepare(
-    "SELECT run_id, step_id, retry_count, max_retries, type, current_story_id FROM steps WHERE id = ?"
+    "SELECT run_id, step_id, retry_count, max_retries, type, current_story_id, session_key FROM steps WHERE id = ?"
   ).get(stepId) as {
     run_id: string;
     step_id: string;
@@ -1095,9 +1095,20 @@ export async function failStep(stepId: string, error: string): Promise<{ retryin
     max_retries: number;
     type: string;
     current_story_id: string | null;
+    session_key: string | null;
   } | undefined;
 
   if (!step) throw new Error(`Step not found: ${stepId}`);
+
+  // Kill the associated gateway session to stop token waste (issue #225)
+  if (step.session_key) {
+    try {
+      await killSession(step.session_key);
+    } catch (e) {
+      // Log but don't fail - session cleanup is best-effort
+      logger.warn(`Failed to kill session ${step.session_key}: ${e}`);
+    }
+  }
 
   // T9: Loop step failure — per-story retry
   if (step.type === "loop" && step.current_story_id) {
