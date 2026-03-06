@@ -7,24 +7,17 @@ import { readOpenClawConfig, writeOpenClawConfig } from "../installer/openclaw-c
 
 const MEDIC_CRON_NAME = "antfarm/medic";
 const MEDIC_EVERY_MS = 5 * 60 * 1000; // 5 minutes
-const MEDIC_MODEL = "minimax/MiniMax-M2.5";
-const MEDIC_TIMEOUT_SECONDS = 120;
+// Use smaller local model for efficiency - CLI-first approach
+// Previously used minimax/MiniMax-M2.5 which burned ~50K tokens per run
+const MEDIC_MODEL = "ollama-forge/llama3:latest";
+const MEDIC_TIMEOUT_SECONDS = 60; // Reduced from 120 - faster timeout
 
 function buildMedicPrompt(): string {
   const cli = resolveAntfarmCli();
-  return `You are the Antfarm Medic — a lightweight health watchdog.
+  return `Run: node ${cli} medic run --json
 
-Run the medic check and respond:
-\`\`\`
-node ${cli} medic run --json
-\`\`\`
-
-Respond with ONLY:
-- "HEARTBEAT_OK" (exact text, no other output) if issuesFound is 0
-- A summary if issues were found
-
-Do NOT attempt to fix issues yourself. The medic check handles remediation.
-If critical issues, alert via sessions_send to agent:main:main.`;
+If issuesFound is 0: respond exactly "HEARTBEAT_OK"
+Else: summarize the issues found.`;
 }
 
 async function ensureMedicAgent(): Promise<void> {
