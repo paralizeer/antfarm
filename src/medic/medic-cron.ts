@@ -1,9 +1,17 @@
 /**
  * Medic cron management — install/uninstall the medic's periodic check cron job.
+ * 
+ * Supports two modes:
+ * - LLM-based (default): Spawns an LLM session every 5 min to check + remediate
+ * - CLI-first (lite): Shell cron that only spawns LLM when issues detected
  */
 import { createAgentCronJob, deleteCronJob, listCronJobs } from "../installer/gateway-api.js";
 import { resolveAntfarmCli } from "../installer/paths.js";
 import { readOpenClawConfig, writeOpenClawConfig } from "../installer/openclaw-config.js";
+import {
+  installMedicCronLite as installMedicCronLiteImpl,
+  uninstallMedicCronLite as uninstallMedicCronLiteImpl,
+} from "./medic-shell.js";
 
 const MEDIC_CRON_NAME = "antfarm/medic";
 const MEDIC_EVERY_MS = 5 * 60 * 1000; // 5 minutes
@@ -62,6 +70,65 @@ async function removeMedicAgent(): Promise<void> {
   }
 }
 
+async function findMedicCronJob(): Promise<{ id: string; name: string } | null> {
+  const result = await listCronJobs();
+  if (!result.ok || !result.jobs) return null;
+  return result.jobs.find(j => j.name === MEDIC_CRON_NAME) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Medic mode configuration (LLM vs Lite)
+// ---------------------------------------------------------------------------
+
+async function getMedicMode(): Promise<"llm" | "lite"> {
+  try {
+    const { config } = await readOpenClawConfig();
+    return (config.antfarm?.medicMode as "llm" | "lite") ?? "llm";
+  } catch {
+    return "llm";
+  }
+}
+
+async function setMedicMode(mode: "llm" | "lite"): Promise<void> {
+  try {
+    const { path, config } = await readOpenClawConfig();
+    if (!config.antfarm) config.antfarm = {};
+    config.antfarm.medicMode = mode;
+    await writeOpenClawConfig(path, config);
+  } catch {
+    // best-effort
+  }
+}
+
+export async function getMedicCronStatus(): Promise<{
+  mode: "llm" | "lite";
+  llmCronInstalled: boolean;
+  liteCronInstalled: boolean;
+}> {
+  const mode = await getMedicMode();
+  const job = await findMedicCronJob();
+  
+  // Check for lite cron via crontab
+  let liteCronInstalled = false;
+  try {
+    const { execSync } = await import("node:child_process");
+    const crontab = execSync("crontab -l 2>/dev/null || true", { encoding: "utf-8" });
+    liteCronInstalled = crontab.includes("antfarm-medic-check.sh");
+  } catch {
+    // ignore
+  }
+  
+  return {
+    mode,
+    llmCronInstalled: job !== null,
+    liteCronInstalled,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// LLM-based medic (original)
+// ---------------------------------------------------------------------------
+
 export async function installMedicCron(): Promise<{ ok: boolean; error?: string }> {
   // Check if already installed
   const existing = await findMedicCronJob();
@@ -87,6 +154,10 @@ export async function installMedicCron(): Promise<{ ok: boolean; error?: string 
     enabled: true,
   });
 
+  if (result.ok) {
+    await setMedicMode("llm");
+  }
+  
   return result;
 }
 
@@ -103,13 +174,43 @@ export async function uninstallMedicCron(): Promise<{ ok: boolean; error?: strin
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Lite (CLI-first) medic
+// ---------------------------------------------------------------------------
+
+export async function installMedicCronLite(): Promise<{ ok: boolean; error?: string }> {
+  // Uninstall LLM-based medic first if installed
+  await uninstallMedicCron();
+  
+  // Install lite version (shell-based)
+  const result = await installMedicCronLiteImpl();
+  
+  if (result.ok) {
+    await setMedicMode("lite");
+  }
+  
+  return result;
+}
+
+export async function uninstallMedicCronLite(): Promise<{ ok: boolean; error?: string }> {
+  const result = await uninstallMedicCronLiteImpl();
+  await setMedicMode("llm"); // reset to default
+  return result;
+}
+
+export async function uninstallMedicCronAll(): Promise<{ ok: boolean; error?: string }> {
+  // Uninstall LLM-based
+  await uninstallMedicCron();
+  
+  // Uninstall lite-based
+  await uninstallMedicCronLiteImpl();
+  
+  await setMedicMode("llm"); // reset to default
+  
+  return { ok: true };
+}
+
 export async function isMedicCronInstalled(): Promise<boolean> {
   const job = await findMedicCronJob();
   return job !== null;
-}
-
-async function findMedicCronJob(): Promise<{ id: string; name: string } | null> {
-  const result = await listCronJobs();
-  if (!result.ok || !result.jobs) return null;
-  return result.jobs.find(j => j.name === MEDIC_CRON_NAME) ?? null;
 }

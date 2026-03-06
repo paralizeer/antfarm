@@ -24,6 +24,9 @@ export type OpenClawConfig = {
     };
     list?: Array<Record<string, unknown>>;
   };
+  antfarm?: {
+    medicMode?: "llm" | "lite";
+  };
 };
 
 export async function readOpenClawConfig(): Promise<{ path: string; config: OpenClawConfig }> {

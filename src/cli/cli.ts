@@ -26,7 +26,14 @@ import { startDaemon, stopDaemon, getDaemonStatus, isRunning } from "../server/d
 import { claimStep, completeStep, failStep, getStories, peekStep } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { runMedicCheck, getMedicStatus, getRecentMedicChecks } from "../medic/medic.js";
-import { installMedicCron, uninstallMedicCron, isMedicCronInstalled } from "../medic/medic-cron.js";
+import {
+  installMedicCron,
+  uninstallMedicCron,
+  uninstallMedicCronAll,
+  isMedicCronInstalled,
+  getMedicCronStatus,
+  installMedicCronLite,
+} from "../medic/medic-cron.js";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -110,7 +117,8 @@ function printUsage() {
       "antfarm step fail <step-id> <error>  Fail step with retry logic",
       "antfarm step stories <run-id>       List stories for a run",
       "",
-      "antfarm medic install                Install medic watchdog cron",
+      "antfarm medic install                Install medic watchdog cron (LLM-based)",
+      "antfarm medic install --lite         Install lightweight CLI-first medic (saves tokens)",
       "antfarm medic uninstall              Remove medic cron",
       "antfarm medic run [--json]           Run medic check now (manual trigger)",
       "antfarm medic status                 Show medic health summary",
@@ -273,9 +281,23 @@ async function main() {
 
   if (group === "medic") {
     if (action === "install") {
+      const wantsLite = args.includes("--lite");
+      
+      if (wantsLite) {
+        const result = await installMedicCronLite();
+        if (result.ok) {
+          console.log("Medic watchdog installed (CLI-first mode, checks every 5 minutes).");
+          console.log("  → No LLM cost when idle, only when issues detected");
+        } else {
+          console.error(`Failed to install medic: ${result.error}`);
+          process.exit(1);
+        }
+        return;
+      }
+      
       const result = await installMedicCron();
       if (result.ok) {
-        console.log("Medic watchdog installed (checks every 5 minutes).");
+        console.log("Medic watchdog installed (LLM-based, checks every 5 minutes).");
       } else {
         console.error(`Failed to install medic: ${result.error}`);
         process.exit(1);
@@ -284,9 +306,9 @@ async function main() {
     }
 
     if (action === "uninstall") {
-      const result = await uninstallMedicCron();
+      const result = await uninstallMedicCronAll();
       if (result.ok) {
-        console.log("Medic watchdog removed.");
+        console.log("Medic watchdog removed (all modes).");
       } else {
         console.error(`Failed to uninstall medic: ${result.error}`);
         process.exit(1);
@@ -326,6 +348,13 @@ async function main() {
     if (action === "status") {
       const status = getMedicStatus();
       const cronInstalled = await isMedicCronInstalled();
+      const cronStatus = await getMedicCronStatus();
+      
+      console.log("Antfarm Medic Status");
+      console.log("====================");
+      console.log("Mode: " + (cronStatus.mode === "lite" ? "CLI-first (lite)" : "LLM-based"));
+      console.log("LLM Cron: " + (cronStatus.llmCronInstalled ? "✓ installed" : "✗ not installed"));
+      console.log("Lite Cron: " + (cronStatus.liteCronInstalled ? "✓ installed" : "✗ not installed"));
 
       console.log("Antfarm Medic");
       console.log(`  Cron: ${cronInstalled ? "installed (every 5 min)" : "not installed"}`);
