@@ -13,45 +13,11 @@ import { getMaxRoleTimeoutSeconds } from "./install.js";
 import { loadWorkflowSpec } from "./workflow-spec.js";
 import { resolveWorkflowDir } from "./paths.js";
 import { isFrontendChange } from "../lib/frontend-detect.js";
+import { parseOutputKeyValues, resolveTemplate, findMissingTemplateKeys } from "../lib/step-output.js";
 import type { WorkflowStepFailure } from "./types.js";
 
-/**
- * Parse KEY: value lines from step output with support for multi-line values.
- * Accumulates continuation lines until the next KEY: boundary or end of output.
- * Returns a map of lowercase keys to their (trimmed) values.
- * Skips STORIES_JSON keys (handled separately).
- */
-export function parseOutputKeyValues(output: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const lines = output.split("\n");
-  let pendingKey: string | null = null;
-  let pendingValue = "";
-
-  function commitPending() {
-    if (pendingKey && !pendingKey.startsWith("STORIES_JSON")) {
-      result[pendingKey.toLowerCase()] = pendingValue.trim();
-    }
-    pendingKey = null;
-    pendingValue = "";
-  }
-
-  for (const line of lines) {
-    const match = line.match(/^([A-Z_]+):\s*(.*)$/);
-    if (match) {
-      // New KEY: line found — flush previous key
-      commitPending();
-      pendingKey = match[1];
-      pendingValue = match[2];
-    } else if (pendingKey) {
-      // Continuation line — append to current key's value
-      pendingValue += "\n" + line;
-    }
-  }
-  // Flush any remaining pending value
-  commitPending();
-
-  return result;
-}
+// Re-export for backwards compatibility - these functions moved to lib/step-output.ts
+export { parseOutputKeyValues, resolveTemplate, findMissingTemplateKeys };
 
 /**
  * Fire-and-forget cron teardown when a run ends.
@@ -78,37 +44,6 @@ function getWorkflowId(runId: string): string | undefined {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
-
-/**
- * Resolve {{key}} placeholders in a template against a context object.
- */
-export function resolveTemplate(template: string, context: Record<string, string>): string {
-  return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_match, key: string) => {
-    if (key in context) return context[key];
-    const lower = key.toLowerCase();
-    if (lower in context) return context[lower];
-    return `[missing: ${key}]`;
-  });
-}
-
-/**
- * Find missing template placeholders for a given context object.
- */
-function findMissingTemplateKeys(template: string, context: Record<string, string>): string[] {
-  const missing: string[] = [];
-  const seen = new Set<string>();
-  template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_match, key: string) => {
-    const lower = key.toLowerCase();
-    const hasExact = Object.prototype.hasOwnProperty.call(context, key);
-    const hasLower = Object.prototype.hasOwnProperty.call(context, lower);
-    if (!hasExact && !hasLower && !seen.has(lower)) {
-      seen.add(lower);
-      missing.push(lower);
-    }
-    return "";
-  });
-  return missing;
-}
 
 /**
  * Get the workspace path for an OpenClaw agent by its id.
