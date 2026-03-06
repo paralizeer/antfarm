@@ -520,7 +520,7 @@ export function claimStep(agentId: string, sessionKey?: string): ClaimResult {
   const db = getDb();
 
   const step = db.prepare(
-    `SELECT s.id, s.step_id, s.run_id, s.input_template, s.type, s.loop_config, s.step_index
+    `SELECT s.id, s.step_id, s.run_id, s.input_template, s.type, s.loop_config, s.step_index, s.output, s.expects
      FROM steps s
      JOIN runs r ON r.id = s.run_id
      WHERE s.agent_id = ? AND s.status = 'pending'
@@ -538,6 +538,7 @@ export function claimStep(agentId: string, sessionKey?: string): ClaimResult {
     loop_config: string | null;
     step_index: number;
     current_story_id: string | null; status: string;
+    output: string | null; expects: string;
   } | undefined;
 
   if (!step) return { found: false };
@@ -613,7 +614,27 @@ export function claimStep(agentId: string, sessionKey?: string): ClaimResult {
           return { found: false };
         }
 
-        // No pending or failed stories — mark step done and advance
+        // No pending or failed stories — validate output before marking done
+        const stepOutput = step.output ?? "";
+        try {
+          validateStepOutput(step.expects, stepOutput);
+        } catch (validationError: any) {
+          // Validation failed: mark step as failed instead of done
+          const message = validationError.message;
+          db.prepare(
+            "UPDATE steps SET status = 'failed', output = ?, updated_at = datetime('now') WHERE id = ?"
+          ).run(message, step.id);
+          db.prepare(
+            "UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
+          ).run(step.run_id);
+          const wfId = getWorkflowId(step.run_id);
+          emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, agentId: agentId, detail: message });
+          emitEvent({ ts: new Date().toISOString(), event: "run.failed", runId: step.run_id, workflowId: wfId, detail: message });
+          scheduleRunCronTeardown(step.run_id);
+          return { found: false };
+        }
+
+        // Validation passed — mark step done and advance
         db.prepare(
           "UPDATE steps SET status = 'done', updated_at = datetime('now') WHERE id = ?"
         ).run(step.id);
