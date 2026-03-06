@@ -9,6 +9,7 @@ export type MedicActionType =
   | "reset_step"
   | "fail_run"
   | "teardown_crons"
+  | "disable_crons"
   | "none";
 
 export interface MedicFinding {
@@ -188,6 +189,62 @@ export function checkOrphanedCrons(
         severity: "warning",
         message: `${jobCount} cron job(s) for workflow "${wfId}" still running but no active runs exist`,
         action: "teardown_crons",
+        remediated: false,
+      });
+    }
+  }
+
+  return findings;
+}
+
+// ── Check: Failing Workflows (Circuit Breaker) ──────────────────────
+
+const CIRCUIT_BREAKER_THRESHOLD = 3; // Disable crons after N consecutive failures
+export { CIRCUIT_BREAKER_THRESHOLD }; // Export for use in medic.ts
+
+const FAILURE_WINDOW_HOURS = 24; // Look at failures in the last 24 hours
+
+/**
+ * Check for workflows with repeated failures that should have their crons disabled (circuit breaker).
+ * This prevents token waste from continuously failing workflows.
+ */
+export function checkFailingWorkflows(
+  cronJobs: Array<{ id: string; name: string }>,
+): MedicFinding[] {
+  const db = getDb();
+  const findings: MedicFinding[] = [];
+
+  // Get workflow IDs that have active crons
+  const workflowIdsWithCrons = new Set<string>();
+  for (const job of cronJobs) {
+    const match = job.name.match(/^antfarm\/([^/]+)\//);
+    if (match) workflowIdsWithCrons.add(match[1]);
+  }
+
+  for (const wfId of workflowIdsWithCrons) {
+    // Count failed runs in the last 24 hours
+    const failed = db.prepare(`
+      SELECT COUNT(*) as cnt FROM runs 
+      WHERE workflow_id = ? 
+        AND status = 'failed' 
+        AND updated_at > datetime('now', '-${FAILURE_WINDOW_HOURS} hours')
+    `).get(wfId) as { cnt: number };
+
+    // Count total runs in the last 24 hours
+    const total = db.prepare(`
+      SELECT COUNT(*) as cnt FROM runs 
+      WHERE workflow_id = ? 
+        AND updated_at > datetime('now', '-${FAILURE_WINDOW_HOURS} hours')
+    `).get(wfId) as { cnt: number };
+
+    // If all recent runs failed and count exceeds threshold, trigger circuit breaker
+    if (failed.cnt >= CIRCUIT_BREAKER_THRESHOLD && total.cnt > 0 && failed.cnt === total.cnt) {
+      const jobCount = cronJobs.filter(j => j.name.startsWith(`antfarm/${wfId}/`)).length;
+      findings.push({
+        check: "circuit_breaker",
+        severity: "critical",
+        message: `Workflow "${wfId}" has ${failed.cnt} consecutive failures in ${FAILURE_WINDOW_HOURS}h — circuit breaker should disable ${jobCount} cron job(s) to prevent token waste`,
+        action: "disable_crons",
         remediated: false,
       });
     }

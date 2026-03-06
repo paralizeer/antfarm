@@ -11,6 +11,8 @@ import { listCronJobs } from "../installer/gateway-api.js";
 import {
   runSyncChecks,
   checkOrphanedCrons,
+  checkFailingWorkflows,
+  CIRCUIT_BREAKER_THRESHOLD,
   type MedicFinding,
 } from "./checks.js";
 import crypto from "node:crypto";
@@ -119,6 +121,34 @@ async function remediate(finding: MedicFinding): Promise<boolean> {
       }
     }
 
+    case "disable_crons": {
+      // Circuit breaker: disable crons for a failing workflow
+      // Extract workflow ID from the message
+      const match = finding.message.match(/workflow "([^"]+)"/);
+      if (!match) return false;
+      const workflowId = match[1];
+      
+      try {
+        // Import here to avoid circular dependencies
+        const { disableAgentCronJobs } = await import("../installer/gateway-api.js");
+        const disabled = await disableAgentCronJobs(`antfarm/${workflowId}/`);
+        if (disabled > 0) {
+          // Use a placeholder runId since this is a workflow-level action
+          emitEvent({
+            ts: new Date().toISOString(),
+            event: "run.failed" as EventType,
+            runId: `circuit-breaker-${workflowId}`,
+            workflowId,
+            detail: `Circuit breaker: auto-disabled ${disabled} cron job(s) after ${CIRCUIT_BREAKER_THRESHOLD} consecutive failures`,
+          });
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    }
+
     case "none":
     default:
       return false;
@@ -145,12 +175,13 @@ export async function runMedicCheck(): Promise<MedicCheckResult> {
   // Gather all findings
   const findings: MedicFinding[] = runSyncChecks();
 
-  // Async check: orphaned crons
+  // Async check: orphaned crons and failing workflows (circuit breaker)
   try {
     const cronResult = await listCronJobs();
     if (cronResult.ok && cronResult.jobs) {
       const antfarmCrons = cronResult.jobs.filter(j => j.name.startsWith("antfarm/"));
       findings.push(...checkOrphanedCrons(antfarmCrons));
+      findings.push(...checkFailingWorkflows(antfarmCrons));
     }
   } catch {
     // Can't check crons — skip this check

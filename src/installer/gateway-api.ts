@@ -364,6 +364,38 @@ export async function deleteAgentCronJobs(namePrefix: string): Promise<void> {
   }
 }
 
+/**
+ * Disable a cron job by ID (circuit breaker).
+ * This stops the cron from consuming tokens on repeated failures.
+ */
+export async function disableCronJob(jobId: string): Promise<{ ok: boolean; error?: string }> {
+  // CLI fallback - HTTP doesn't seem to support cron disable
+  try {
+    await runCli(["cron", "disable", jobId]);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `Failed to disable cron job: ${err}` };
+  }
+}
+
+/**
+ * Disable all cron jobs for a workflow (circuit breaker action).
+ * Returns the number of crons disabled.
+ */
+export async function disableAgentCronJobs(namePrefix: string): Promise<number> {
+  const listResult = await listCronJobs();
+  if (!listResult.ok || !listResult.jobs) return 0;
+
+  let disabled = 0;
+  for (const job of listResult.jobs) {
+    if (job.name.startsWith(namePrefix)) {
+      const result = await disableCronJob(job.id);
+      if (result.ok) disabled++;
+    }
+  }
+  return disabled;
+}
+
 export async function sendSessionMessage(params: { sessionKey: string; message: string }): Promise<{ ok: boolean; error?: string }> {
   const payload = {
     tool: "sessions_send",
