@@ -263,6 +263,15 @@ steps:
       4. If approved: reply STATUS: done
       5. If changes needed: reply STATUS: retry with specific issues
 
+      ## Check for Bot Reviews
+      Before approving, check for existing reviews from AI bots (Copilot, Gemini, etc.):
+      ```
+      gh pr view {{pr_number}} --json reviews
+      ```
+      If there are pending comments or suggestions from bot reviews, you MUST either:
+      1. Address them in your review (request changes if significant), OR
+      2. Acknowledge them in your approval if they're minor/optional
+
       Reply with:
       STATUS: done
       VERIFIED: What you confirmed
