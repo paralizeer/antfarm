@@ -125,8 +125,6 @@ async function resolveAgentCronModel(agentId: string, requestedModel?: string): 
   return requestedModel;
 }
 
->>>>>>> 315e94a (fix(agent-cron): use valid model for polling instead of 'default')
-
 export function buildPollingPrompt(workflowId: string, agentId: string, workModel?: string, workTimeoutSeconds?: number): string {
   const fullAgentId = `${workflowId}_${agentId}`;
   const cli = resolveAntfarmCli();
