@@ -26,7 +26,7 @@ import { startDaemon, stopDaemon, getDaemonStatus, isRunning } from "../server/d
 import { claimStep, completeStep, failStep, getStories, peekStep } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { runMedicCheck, getMedicStatus, getRecentMedicChecks } from "../medic/medic.js";
-import { installMedicCron, uninstallMedicCron, isMedicCronInstalled } from "../medic/medic-cron.js";
+import { installMedicCron, installMedicCronCli, uninstallMedicCron, uninstallMedicCronCli, isMedicCronInstalled, isMedicCronCliInstalled } from "../medic/medic-cron.js";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -110,7 +110,8 @@ function printUsage() {
       "antfarm step fail <step-id> <error>  Fail step with retry logic",
       "antfarm step stories <run-id>       List stories for a run",
       "",
-      "antfarm medic install                Install medic watchdog cron",
+      "antfarm medic install                Install medic watchdog cron (LLM-based)",
+      "antfarm medic install-cli            Install medic watchdog (CLI-first, recommended)",
       "antfarm medic uninstall              Remove medic cron",
       "antfarm medic run [--json]           Run medic check now (manual trigger)",
       "antfarm medic status                 Show medic health summary",
@@ -275,7 +276,21 @@ async function main() {
     if (action === "install") {
       const result = await installMedicCron();
       if (result.ok) {
-        console.log("Medic watchdog installed (checks every 5 minutes).");
+        console.log("Medic watchdog installed (LLM-based, checks every 5 minutes).");
+      } else {
+        console.error(`Failed to install medic: ${result.error}`);
+        process.exit(1);
+      }
+      return;
+    }
+
+    if (action === "install-cli") {
+      const result = await installMedicCronCli();
+      if (result.ok) {
+        console.log("Medic watchdog installed (CLI-first mode, recommended).");
+        console.log("  - Runs medic check as CLI (no LLM cost for happy path)");
+        console.log("  - Spawns LLM session only when issues detected");
+        console.log("  - Saves ~50K tokens per check when farm is healthy");
       } else {
         console.error(`Failed to install medic: ${result.error}`);
         process.exit(1);
