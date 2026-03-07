@@ -372,6 +372,14 @@ steps:
 
       If changes needed, add comments to the PR explaining what needs to change.
 
+      ## Merge on Approval
+      After approving the PR, you MUST merge it:
+      1. gh pr review <number> --approve --body "your review summary"
+      2. gh pr merge <number> --squash --delete-branch --admin
+      3. Verify merge succeeded: gh pr view <number> --json state (should be "merged")
+
+      If merge fails (conflicts, checks failing, not authorized), report the failure in your output but still output STATUS: done.
+
       Reply with:
       STATUS: done
       DECISION: approved
