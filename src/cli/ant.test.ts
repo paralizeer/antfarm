@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { printAnt } from "./ant.js";
+import { printAnt } from "../../dist/cli/ant.js";
 
 describe("printAnt", () => {
   let output: string;

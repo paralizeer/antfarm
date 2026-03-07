@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { log, logger, formatEntry, readRecentLogs } from "./logger.js";
-import type { LogLevel } from "./logger.js";
+import { log, logger, formatEntry, readRecentLogs } from "../../dist/lib/logger.js";
+import type { LogLevel } from "../../dist/lib/logger.js";
 
 describe("logger", () => {
   describe("log()", () => {

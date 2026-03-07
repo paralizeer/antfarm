@@ -1,9 +1,9 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { getDb } from "../db.js";
-import { stopWorkflow } from "./status.js";
-import type { StopWorkflowResult } from "./status.js";
+import { getDb } from "../../dist/db.js";
+import { stopWorkflow } from "../../dist/installer/status.js";
+import type { StopWorkflowResult } from "../../dist/installer/status.js";
 
 // Helper to create a test run with steps
 function createTestRun(opts: {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { selectAntfarmManagedAgents } from "./uninstall.js";
+import { selectAntfarmManagedAgents } from "../../dist/installer/uninstall.js";
 
 describe("selectAntfarmManagedAgents", () => {
   it("removes only workflow-prefixed agents for known Antfarm workflow ids", () => {
