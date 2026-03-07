@@ -959,7 +959,33 @@ function checkLoopContinuation(runId: string, loopStepId: string): { advanced: b
     return { advanced: false, runCompleted: false };
   }
 
-  // All stories done — mark loop step done
+  // All stories done — validate output before marking loop step done
+  const loopStepForValidation = db.prepare(
+    "SELECT step_id, output, expects FROM steps WHERE id = ?"
+  ).get(loopStepId) as { step_id: string; output: string | null; expects: string } | undefined;
+
+  if (loopStepForValidation) {
+    const stepOutput = loopStepForValidation.output ?? "";
+    try {
+      validateStepOutput(loopStepForValidation.expects, stepOutput);
+    } catch (validationError: any) {
+      // Validation failed: mark step as failed instead of done
+      const message = validationError.message;
+      db.prepare(
+        "UPDATE steps SET status = 'failed', output = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(message, loopStepId);
+      db.prepare(
+        "UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
+      ).run(runId);
+      const wfId = getWorkflowId(runId);
+      emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId, workflowId: wfId, stepId: loopStepForValidation.step_id, detail: message });
+      emitEvent({ ts: new Date().toISOString(), event: "run.failed", runId, workflowId: wfId, detail: message });
+      scheduleRunCronTeardown(runId);
+      return { advanced: false, runCompleted: false };
+    }
+  }
+
+  // Validation passed — mark loop step done
   db.prepare(
     "UPDATE steps SET status = 'done', updated_at = datetime('now') WHERE id = ?"
   ).run(loopStepId);
