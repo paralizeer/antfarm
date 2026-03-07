@@ -78,7 +78,7 @@ steps:
       STATUS: done
       CONTEXT:
       [Summarize all relevant context you found: past decisions, conventions, known issues, current state, relevant files. If nothing found, say "No prior context found."]
-    expects: "STATUS: done"
+    expects: "STATUS: done, CONTEXT"
     max_retries: 1
     on_fail:
       escalate_to: human
@@ -126,7 +126,7 @@ steps:
           "depends_on": []
         }
       ]
-    expects: "STATUS: done"
+    expects: "STATUS: done, REPO, BRANCH, STORIES_JSON"
     max_retries: 2
     on_fail:
       escalate_to: human

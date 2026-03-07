@@ -80,7 +80,7 @@ steps:
       Reply with:
       STATUS: done
       BUSINESSES_FOUND: [count]
-    expects: "STATUS: done"
+    expects: "STATUS: done, BUSINESSES_FOUND"
     max_retries: 1
     on_fail:
       escalate_to: human

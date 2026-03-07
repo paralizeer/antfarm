@@ -103,7 +103,7 @@ steps:
       AFFECTED_AREA: what files/modules are affected
       REPRODUCTION: how to reproduce the bug
       PROBLEM_STATEMENT: clear description of what's wrong
-    expects: "STATUS: done"
+    expects: "STATUS: done, REPO, BRANCH, SEVERITY, AFFECTED_AREA, REPRODUCTION, PROBLEM_STATEMENT"
     max_retries: 2
     on_fail:
       escalate_to: human
@@ -132,7 +132,7 @@ steps:
       STATUS: done
       ROOT_CAUSE: detailed explanation of the root cause
       FIX_APPROACH: what needs to change and where
-    expects: "STATUS: done"
+    expects: "STATUS: done, ROOT_CAUSE, FIX_APPROACH"
     max_retries: 2
     on_fail:
       escalate_to: human
@@ -158,7 +158,7 @@ steps:
       BUILD_CMD: <build command>
       TEST_CMD: <test command>
       BASELINE: <baseline status>
-    expects: "STATUS: done"
+    expects: "STATUS: done, BUILD_CMD, TEST_CMD, BASELINE"
     max_retries: 2
     on_fail:
       escalate_to: human

@@ -125,7 +125,7 @@ steps:
       BRANCH: security-audit-YYYY-MM-DD
       VULNERABILITY_COUNT: <number>
       FINDINGS: <detailed list of each vulnerability>
-    expects: "STATUS: done"
+    expects: "STATUS: done, REPO, BRANCH, VULNERABILITY_COUNT, FINDINGS"
     max_retries: 2
     on_fail:
       escalate_to: human
@@ -164,7 +164,7 @@ steps:
       HIGH_COUNT: <number>
       DEFERRED: <any issues skipped and why>
       STORIES_JSON: [ ... array of story objects ... ]
-    expects: "STATUS: done"
+    expects: "STATUS: done, FIX_PLAN, CRITICAL_COUNT, HIGH_COUNT, DEFERRED, STORIES_JSON"
     max_retries: 2
     on_fail:
       escalate_to: human
@@ -189,7 +189,7 @@ steps:
       BUILD_CMD: <build command>
       TEST_CMD: <test command>
       BASELINE: <baseline status>
-    expects: "STATUS: done"
+    expects: "STATUS: done, BUILD_CMD, TEST_CMD, BASELINE"
     max_retries: 2
     on_fail:
       escalate_to: human

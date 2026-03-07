@@ -78,7 +78,7 @@ steps:
       STATUS: done
       JOBS_FOUND: [count]
       NEW_JOBS: [list of top 5 jobs]
-    expects: "STATUS: done"
+    expects: "STATUS: done, JOBS_FOUND, NEW_JOBS"
     max_retries: 1
     on_fail:
       escalate_to: human

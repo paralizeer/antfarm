@@ -63,7 +63,7 @@ steps:
       STATUS: done
       NEW_LEADS: [list of new leads found]
       CSV_APPENDED: true/false
-    expects: "STATUS: done"
+    expects: "STATUS: done, NEW_LEADS, CSV_APPENDED"
     max_retries: 1
     on_fail:
       escalate_to: human
