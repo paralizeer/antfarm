@@ -327,8 +327,8 @@ export function cleanupAbandonedSteps(): void {
     // Loop steps: apply per-story retry, not per-step retry (#35)
     if (step.type === "loop" && step.current_story_id) {
       const story = db.prepare(
-        "SELECT id, retry_count, max_retries, story_id, title FROM stories WHERE id = ?"
-      ).get(step.current_story_id) as { id: string; retry_count: number; max_retries: number; story_id: string; title: string } | undefined;
+        "SELECT id, retry_count, max_retries, story_id, title, output FROM stories WHERE id = ?"
+      ).get(step.current_story_id) as { id: string; retry_count: number; max_retries: number; story_id: string; title: string; output: string | null } | undefined;
 
       if (story) {
         const newRetry = story.retry_count + 1;
@@ -342,10 +342,19 @@ export function cleanupAbandonedSteps(): void {
           emitEvent({ ts: new Date().toISOString(), event: "run.failed", runId: step.run_id, workflowId: wfId, detail: "Story abandoned and retries exhausted" });
           scheduleRunCronTeardown(step.run_id);
         } else {
-          db.prepare("UPDATE stories SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
-          db.prepare("UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
-          emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Story ${story.story_id} abandoned — reset to pending (story retry ${newRetry})` });
-          logger.info(`Abandoned step reset to pending (story retry ${newRetry})`, { runId: step.run_id, stepId: step.step_id });
+          // If story has output, it was actually completed but step complete wasn't called
+          // Mark story as done instead of pending to avoid re-doing work (#266, #272)
+          if (story.output && story.output.length > 0) {
+            db.prepare("UPDATE stories SET status = 'done', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
+            db.prepare("UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
+            emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, storyId: story.story_id, storyTitle: story.title, detail: `Story ${story.story_id} had output but step not completed — marked done, reset step to pending` });
+            logger.info(`Story had output but step not completed — marked done, reset step to pending`, { runId: step.run_id, stepId: step.step_id });
+          } else {
+            db.prepare("UPDATE stories SET status = 'pending', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
+            db.prepare("UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(step.id);
+            emitEvent({ ts: new Date().toISOString(), event: "step.timeout", runId: step.run_id, workflowId: wfId, stepId: step.step_id, detail: `Story ${story.story_id} abandoned — reset to pending (story retry ${newRetry})` });
+            logger.info(`Abandoned step reset to pending (story retry ${newRetry})`, { runId: step.run_id, stepId: step.step_id });
+          }
         }
         continue;
       }
