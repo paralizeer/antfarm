@@ -7,10 +7,11 @@
 import { getDb } from "../db.js";
 import { emitEvent, type EventType } from "../installer/events.js";
 import { teardownWorkflowCronsIfIdle } from "../installer/agent-cron.js";
-import { listCronJobs } from "../installer/gateway-api.js";
+import { listCronJobs, disableCronJob } from "../installer/gateway-api.js";
 import {
   runSyncChecks,
   checkOrphanedCrons,
+  checkFailingCrons,
   type MedicFinding,
 } from "./checks.js";
 import crypto from "node:crypto";
@@ -119,6 +120,41 @@ async function remediate(finding: MedicFinding): Promise<boolean> {
       }
     }
 
+    case "disable_cron": {
+      // Extract cron job name from the message (format: 'Cron job "xyz" has N consecutive errors')
+      const cronMatch = finding.message.match(/Cron job "([^"]+)"/);
+      if (!cronMatch) return false;
+      
+      // Find the cron job ID from the name
+      const listResult = await listCronJobs();
+      if (!listResult.ok || !listResult.jobs) return false;
+      
+      const cronJob = listResult.jobs.find(j => j.name === cronMatch[1]);
+      if (!cronJob) return false;
+      
+      try {
+        const result = await disableCronJob(cronJob.id);
+        if (result.ok) {
+          // Log the disabling
+          const db = getDb();
+          db.prepare(
+            "INSERT INTO medic_checks (id, checked_at, issues_found, actions_taken, summary, details) VALUES (?, ?, ?, ?, ?, ?)"
+          ).run(
+            crypto.randomUUID(),
+            new Date().toISOString(),
+            0,
+            1,
+            `Circuit breaker disabled cron: ${cronMatch[1]}`,
+            JSON.stringify([{ action: "disable_cron", jobId: cronJob.id, jobName: cronMatch[1] }])
+          );
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    }
+
     case "none":
     default:
       return false;
@@ -151,6 +187,7 @@ export async function runMedicCheck(): Promise<MedicCheckResult> {
     if (cronResult.ok && cronResult.jobs) {
       const antfarmCrons = cronResult.jobs.filter(j => j.name.startsWith("antfarm/"));
       findings.push(...checkOrphanedCrons(antfarmCrons));
+      findings.push(...checkFailingCrons(cronResult.jobs));
     }
   } catch {
     // Can't check crons — skip this check

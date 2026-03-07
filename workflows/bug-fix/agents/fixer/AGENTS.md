@@ -63,6 +63,26 @@ CHANGES: what files were changed and what was done (e.g., "Updated filterUsers i
 REGRESSION_TEST: what test was added (e.g., "Added 'handles null displayName in search' test in src/lib/search.test.ts")
 ```
 
+## ⚠️ CRITICAL: Complete Your Step
+
+**You MUST call `step complete` after outputting your status, or the workflow will be stuck forever.**
+
+After outputting the format above, you MUST run:
+
+```bash
+# Write output to file first (shell escaping breaks direct args)
+cat <<'ANTFARM_EOF' > /tmp/antfarm-step-output.txt
+STATUS: done
+CHANGES: what files were changed and what was done
+REGRESSION_TEST: what test was added
+ANTFARM_EOF
+
+# Then pipe to step complete - replace <stepId> with your actual step ID
+cat /tmp/antfarm-step-output.txt | node /home/ubuntu/.openclaw/workspace/antfarm/dist/cli/cli.js step complete "<stepId>"
+```
+
+**This is non-negotiable. Your session will end after this call.**
+
 ## Critical: All Changes Must Be In The Repo
 
 Your changes MUST be to files tracked in the git repo at `{{repo}}`. If the bug requires changing files outside the repo (e.g., workspace config, external tool settings), those changes still need to originate from the repo's source code (installer templates, config generators, etc.). Never edit external files directly — find and fix the repo code that produces them.

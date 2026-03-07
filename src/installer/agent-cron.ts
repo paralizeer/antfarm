@@ -91,6 +91,42 @@ The workflow cannot advance until you report. Your session ending without report
 const DEFAULT_POLLING_TIMEOUT_SECONDS = 120;
 const DEFAULT_POLLING_MODEL = "minimax/MiniMax-M2.5";
 
+function extractModel(value: unknown): string | undefined {
+  if (!value) return undefined;
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null) {
+    const primary = (value as { primary?: unknown }).primary;
+    if (typeof primary === "string") return primary;
+  }
+  return undefined;
+}
+
+async function resolveAgentCronModel(agentId: string, requestedModel?: string): Promise<string | undefined> {
+  if (requestedModel && requestedModel !== "default") {
+    return requestedModel;
+  }
+
+  try {
+    const { config } = await readOpenClawConfig();
+    const agents = config.agents?.list;
+    if (Array.isArray(agents)) {
+      const entry = agents.find((a: any) => a?.id === agentId);
+      const configured = extractModel(entry?.model);
+      if (configured) return configured;
+    }
+
+    const defaults = config.agents?.defaults;
+    const fallback = extractModel(defaults?.model);
+    if (fallback) return fallback;
+  } catch {
+    // best-effort — fallback below
+  }
+
+  return requestedModel;
+}
+
+>>>>>>> 315e94a (fix(agent-cron): use valid model for polling instead of 'default')
+
 export function buildPollingPrompt(workflowId: string, agentId: string, workModel?: string, workTimeoutSeconds?: number): string {
   const fullAgentId = `${workflowId}_${agentId}`;
   const cli = resolveAntfarmCli();
