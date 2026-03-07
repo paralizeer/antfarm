@@ -26,6 +26,12 @@ Step 2 — If JSON is returned, it contains: {"stepId": "...", "runId": "...", "
 Save the stepId — you'll need it to report completion.
 The "input" field contains your FULLY RESOLVED task instructions. Read it carefully and DO the work.
 
+Step 2b — CRITICAL: Verify the step is still valid before starting work:
+\`\`\`
+node ${cli} step status "<stepId>" 2>/dev/null || echo "STEP_NOT_FOUND"
+\`\`\`
+If the output does not contain "status.*running" (or if it shows "failed", "pending", "done", or "STEP_NOT_FOUND"), DO NOT proceed with the work. The step may have been manually failed or reset. Exit your session immediately.
+
 Step 3 — Do the work described in the input. Format your output with KEY: value lines as specified.
 
 Step 4 — MANDATORY: Report completion (do this IMMEDIATELY after finishing the work):
@@ -62,6 +68,12 @@ export function buildWorkPrompt(workflowId: string, agentId: string): string {
 The claimed step JSON is provided below. It contains: {"stepId": "...", "runId": "...", "input": "..."}
 Save the stepId — you'll need it to report completion.
 The "input" field contains your FULLY RESOLVED task instructions. Read it carefully and DO the work.
+
+Step 0 — CRITICAL: Verify the step is still valid before starting work:
+\`\`\`
+node ${cli} step status "<stepId>" 2>/dev/null || echo "STEP_NOT_FOUND"
+\`\`\`
+If the output does not contain "status.*running" (or if it shows "failed", "pending", "done", or "STEP_NOT_FOUND"), DO NOT proceed with the work. The step may have been manually failed or reset. Exit your session immediately.
 
 Do the work described in the input. Format your output with KEY: value lines as specified.
 

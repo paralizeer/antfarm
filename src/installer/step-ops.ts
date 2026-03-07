@@ -195,6 +195,18 @@ export function getCurrentStory(stepId: string): Story | null {
   };
 }
 
+/**
+ * Get step status by ID. Returns null if step not found.
+ */
+export function getStepStatus(stepId: string): { status: string; stepId: string; runId: string } | null {
+  const db = getDb();
+  const step = db.prepare(
+    "SELECT status, id, run_id, step_id FROM steps WHERE id = ? OR step_id = ?"
+  ).get(stepId, stepId) as { status: string; id: string; run_id: string; step_id: string } | undefined;
+  if (!step) return null;
+  return { status: step.status, stepId: step.id, runId: step.run_id };
+}
+
 function formatStoryForTemplate(story: Story): string {
   const ac = story.acceptanceCriteria.map((c, i) => `  ${i + 1}. ${c}`).join("\n");
   return `Story ${story.storyId}: ${story.title}\n\n${story.description}\n\nAcceptance Criteria:\n${ac}`;

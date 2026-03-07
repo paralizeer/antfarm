@@ -23,7 +23,7 @@ import { listBundledWorkflows } from "../installer/workflow-fetch.js";
 import { readRecentLogs } from "../lib/logger.js";
 import { getRecentEvents, getRunEvents, type AntfarmEvent } from "../installer/events.js";
 import { startDaemon, stopDaemon, getDaemonStatus, isRunning } from "../server/daemonctl.js";
-import { claimStep, completeStep, failStep, getStories, peekStep } from "../installer/step-ops.js";
+import { claimStep, completeStep, failStep, getStories, peekStep, getStepStatus } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { runMedicCheck, getMedicStatus, getRecentMedicChecks } from "../medic/medic.js";
 import { installMedicCron, uninstallMedicCron, isMedicCronInstalled } from "../medic/medic-cron.js";
@@ -105,6 +105,7 @@ function printUsage() {
       "antfarm dashboard status                Check dashboard status",
       "",
       "antfarm step peek <agent-id>        Lightweight check for pending work (HAS_WORK or NO_WORK)",
+      "antfarm step status <step-id>       Get step status (running, pending, done, failed)",
       "antfarm step claim <agent-id>       Claim pending step, output resolved input as JSON",
       "antfarm step complete <step-id>      Complete step (reads output from stdin)",
       "antfarm step fail <step-id> <error>  Fail step with retry logic",
@@ -367,6 +368,16 @@ async function main() {
       if (!target) { process.stderr.write("Missing agent-id.\n"); process.exit(1); }
       const result = peekStep(target);
       process.stdout.write(result + "\n");
+      return;
+    }
+    if (action === "status") {
+      if (!target) { process.stderr.write("Missing step-id.\n"); process.exit(1); }
+      const result = getStepStatus(target);
+      if (!result) {
+        process.stdout.write("STEP_NOT_FOUND\n");
+      } else {
+        process.stdout.write(JSON.stringify(result) + "\n");
+      }
       return;
     }
     if (action === "claim") {
