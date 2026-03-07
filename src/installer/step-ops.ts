@@ -289,8 +289,24 @@ export function cleanupAbandonedSteps(): void {
           const verifyStatus = db.prepare(
             "SELECT status FROM steps WHERE run_id = ? AND step_id = ? LIMIT 1"
           ).get(step.run_id, loopConfig.verifyStep) as { status: string } | undefined;
+          // If verify step is pending/running, check if there are pending stories to process
           if (verifyStatus?.status === "pending" || verifyStatus?.status === "running") {
-            continue;
+            const pendingStory = db.prepare(
+              "SELECT id FROM stories WHERE run_id = ? AND status = 'pending' LIMIT 1"
+            ).get(step.run_id) as { id: string } | undefined;
+            // If there are pending stories, set loop step to pending so fixer can continue
+            if (pendingStory) {
+              db.prepare(
+                "UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
+              ).run(step.id);
+              logger.info(`Reset loop step to pending (verify step ${verifyStatus.status}, ${step.run_id})`, { stepId: step.step_id });
+              continue;
+            }
+            // No pending stories means verification is still in progress or all done
+            // If verify step is running, don't reset; if pending, let it continue
+            if (verifyStatus.status === "running") {
+              continue;
+            }
           }
         }
       } catch {
