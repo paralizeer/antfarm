@@ -54,6 +54,32 @@ export function parseOutputKeyValues(output: string): Record<string, string> {
 }
 
 /**
+ * Validate that step output contains all required keys specified in expects.
+ * Throws an error if any required keys are missing.
+ * The expects format is "KEY1: value1, KEY2: value2" - we only check key presence.
+ */
+function validateStepOutput(expects: string, output: string): void {
+  if (!expects?.trim()) return;
+
+  // Parse expected keys from expects string (format: "KEY1: value1, KEY2: value2")
+  const expectedKeys = expects.split(",").map(s => s.trim().split(":")[0].toLowerCase()).filter(k => k);
+
+  // Parse actual output keys
+  const actualKeys = parseOutputKeyValues(output);
+
+  // Check each expected key is present
+  const missingKeys = expectedKeys.filter(key => !actualKeys.hasOwnProperty(key));
+
+  if (missingKeys.length > 0) {
+    throw new Error(
+      `Step output missing required keys: ${missingKeys.join(", ")}. ` +
+      `Expected keys from 'expects': ${expects}. ` +
+      `Add these keys to your output before completing the step.`
+    );
+  }
+}
+
+/**
  * Fire-and-forget cron teardown when a run ends.
  * Looks up the workflow_id for the run and tears down crons if no other active runs.
  */
@@ -497,8 +523,10 @@ const CLEANUP_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Find and claim a pending step for an agent, returning the resolved input.
+ * @param agentId - The agent ID claiming the step
+ * @param sessionKey - Optional session key to track the gateway session for this step
  */
-export function claimStep(agentId: string): ClaimResult {
+export function claimStep(agentId: string, sessionKey?: string): ClaimResult {
   // Throttle cleanup: run at most once every 5 minutes across all agents
   const now = Date.now();
   if (now - lastCleanupTime >= CLEANUP_THROTTLE_MS) {
@@ -508,7 +536,7 @@ export function claimStep(agentId: string): ClaimResult {
   const db = getDb();
 
   const step = db.prepare(
-    `SELECT s.id, s.step_id, s.run_id, s.input_template, s.type, s.loop_config, s.step_index
+    `SELECT s.id, s.step_id, s.run_id, s.input_template, s.type, s.loop_config, s.step_index, s.output, s.expects
      FROM steps s
      JOIN runs r ON r.id = s.run_id
      WHERE s.agent_id = ? AND s.status = 'pending'
@@ -525,6 +553,8 @@ export function claimStep(agentId: string): ClaimResult {
     id: string; step_id: string; run_id: string; input_template: string; type: string;
     loop_config: string | null;
     step_index: number;
+    current_story_id: string | null; status: string;
+    output: string | null; expects: string;
   } | undefined;
 
   if (!step) return { found: false };
@@ -549,6 +579,15 @@ export function claimStep(agentId: string): ClaimResult {
 
   // T6: Loop step claim logic
   if (step.type === "loop") {
+    // Safety: if step is "running" but has no current_story_id, re-claim a pending story
+    if (!step.current_story_id && step.status === "running") {
+      logger.warn(`Safety reset: step ${step.step_id} is running but has no current_story_id, resetting to pending`);
+      db.prepare(
+        "UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
+      ).run(step.id);
+      step.status = "pending"; // Update local state
+    }
+    
     const loopConfig: LoopConfig | null = step.loop_config ? JSON.parse(step.loop_config) : null;
     if (loopConfig?.over === "stories") {
       if (!runHasStories(step.run_id)) {
@@ -591,7 +630,27 @@ export function claimStep(agentId: string): ClaimResult {
           return { found: false };
         }
 
-        // No pending or failed stories — mark step done and advance
+        // No pending or failed stories — validate output before marking done
+        const stepOutput = step.output ?? "";
+        try {
+          validateStepOutput(step.expects, stepOutput);
+        } catch (validationError: any) {
+          // Validation failed: mark step as failed instead of done
+          const message = validationError.message;
+          db.prepare(
+            "UPDATE steps SET status = 'failed', output = ?, updated_at = datetime('now') WHERE id = ?"
+          ).run(message, step.id);
+          db.prepare(
+            "UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?"
+          ).run(step.run_id);
+          const wfId = getWorkflowId(step.run_id);
+          emitEvent({ ts: new Date().toISOString(), event: "step.failed", runId: step.run_id, workflowId: wfId, stepId: step.step_id, agentId: agentId, detail: message });
+          emitEvent({ ts: new Date().toISOString(), event: "run.failed", runId: step.run_id, workflowId: wfId, detail: message });
+          scheduleRunCronTeardown(step.run_id);
+          return { found: false };
+        }
+
+        // Validation passed — mark step done and advance
         db.prepare(
           "UPDATE steps SET status = 'done', updated_at = datetime('now') WHERE id = ?"
         ).run(step.id);
@@ -605,8 +664,8 @@ export function claimStep(agentId: string): ClaimResult {
         "UPDATE stories SET status = 'running', updated_at = datetime('now') WHERE id = ?"
       ).run(nextStory.id);
       db.prepare(
-        "UPDATE steps SET status = 'running', current_story_id = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(nextStory.id, step.id);
+        "UPDATE steps SET status = 'running', current_story_id = ?, session_key = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(nextStory.id, sessionKey || null, step.id);
 
       const wfId = getWorkflowId(step.run_id);
       emitEvent({ ts: new Date().toISOString(), event: "step.running", runId: step.run_id, workflowId: wfId, stepId: step.step_id, agentId: agentId });
@@ -634,6 +693,10 @@ export function claimStep(agentId: string): ClaimResult {
       context["current_story"] = formatStoryForTemplate(story);
       context["current_story_id"] = story.storyId;
       context["current_story_title"] = story.title;
+      context["current_story.id"] = story.storyId;
+      context["current_story.title"] = story.title;
+      context["current_story.files"] = nextStory.files || "";
+      context["current_story.description"] = story.description;
       context["completed_stories"] = formatCompletedStories(allStories);
       context["stories_remaining"] = String(pendingCount);
       context["progress"] = readProgressFile(step.run_id);
@@ -658,8 +721,8 @@ export function claimStep(agentId: string): ClaimResult {
 
   // Single step: existing logic
   db.prepare(
-    "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
-  ).run(step.id);
+    "UPDATE steps SET status = 'running', session_key = ?, updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+  ).run(sessionKey || null, step.id);
   emitEvent({ ts: new Date().toISOString(), event: "step.running", runId: step.run_id, workflowId: getWorkflowId(step.run_id), stepId: step.step_id, agentId: agentId });
   logger.info(`Step claimed by ${agentId}`, { runId: step.run_id, stepId: step.step_id });
 
@@ -696,10 +759,13 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
   const db = getDb();
 
   const step = db.prepare(
-    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id FROM steps WHERE id = ?"
-  ).get(stepId) as { id: string; run_id: string; step_id: string; step_index: number; type: string; loop_config: string | null; current_story_id: string | null } | undefined;
+    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id, expects, session_key FROM steps WHERE id = ?"
+  ).get(stepId) as { id: string; run_id: string; step_id: string; step_index: number; type: string; loop_config: string | null; current_story_id: string | null; expects: string; session_key: string | null } | undefined;
 
   if (!step) throw new Error(`Step not found: ${stepId}`);
+
+  // Validate expected output keys before processing
+  validateStepOutput(step.expects, output);
 
   // Guard: don't process completions for failed runs
   const runCheck = db.prepare("SELECT status FROM runs WHERE id = ?").get(step.run_id) as { status: string } | undefined;
@@ -716,6 +782,10 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
   for (const [key, value] of Object.entries(parsed)) {
     context[key] = value;
   }
+
+  // Set defaults for reviewer template keys if not provided
+  if (!context["commit"]) context["commit"] = "none";
+  if (!context["test_result"]) context["test_result"] = "none";
 
   db.prepare(
     "UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?"
@@ -753,10 +823,10 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
         db.prepare(
           "UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
         ).run(verifyStep.id);
-        // Loop step stays 'running'
+        // Loop step stays 'running' - preserve existing session_key
         db.prepare(
-          "UPDATE steps SET status = 'running', updated_at = datetime('now') WHERE id = ?"
-        ).run(step.id);
+          "UPDATE steps SET status = 'running', session_key = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(step.session_key, step.id);
         return { advanced: false, runCompleted: false };
       }
     }
@@ -883,6 +953,8 @@ function checkLoopContinuation(runId: string, loopStepId: string): { advanced: b
   const loopStatus = db.prepare(
     "SELECT status FROM steps WHERE id = ?"
   ).get(loopStepId) as { status: string } | undefined;
+
+  logger.info(`checkLoopContinuation: runId=${runId}, loopStepId=${loopStepId}, pendingStory=${!!pendingStory}, loopStatus=${loopStatus?.status}`);
 
   if (pendingStory) {
     if (loopStatus?.status === "failed") {

@@ -2,6 +2,21 @@
 
 You take the scanner's raw findings and produce a structured, prioritized fix plan as STORIES_JSON for the fixer to loop through.
 
+## Memory Access
+
+You have access to the workspace memory system. Use it to find context.
+
+```bash
+# Search for relevant files, past decisions, patterns, conventions
+~/.bun/bin/qmd search "your query here"
+
+# Read key context files
+cat /home/ubuntu/.openclaw/workspace/memory/core/boot.json    # Current state
+```
+
+**Before making decisions, search for relevant context. Never guess when you can search.**
+
+
 ## Your Process
 
 1. **Deduplicate** — Same root cause = one fix (e.g., 10 SQL injections all using the same `db.raw()` pattern = one fix: "add parameterized query helper")
