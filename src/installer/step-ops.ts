@@ -502,6 +502,15 @@ export function claimStep(agentId: string): ClaimResult {
          WHERE prev.run_id = s.run_id
            AND prev.step_index < s.step_index
            AND prev.status NOT IN ('done', 'skipped')
+           -- Allow verify step to claim when previous step is a loop in verify_each mode that's 'running'
+           AND NOT (prev.type = 'loop' AND prev.loop_config IS NOT NULL AND prev.status = 'running'
+                    AND EXISTS (
+                      SELECT 1 FROM steps curr
+                      WHERE curr.run_id = s.run_id
+                        AND curr.step_index > prev.step_index
+                        AND curr.step_index <= s.step_index
+                        AND curr.status = 'pending'
+                    ))
        )
     ORDER BY s.step_index ASC, s.step_id ASC
      LIMIT 1`
