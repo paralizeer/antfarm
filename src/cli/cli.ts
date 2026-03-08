@@ -18,7 +18,7 @@ try {
 import { installWorkflow } from "../installer/install.js";
 import { uninstallAllWorkflows, uninstallWorkflow, checkActiveRuns } from "../installer/uninstall.js";
 import { getWorkflowStatus, listRuns, stopWorkflow } from "../installer/status.js";
-import { runWorkflow } from "../installer/run.js";
+import { runWorkflow, dryRunWorkflow } from "../installer/run.js";
 import { listBundledWorkflows } from "../installer/workflow-fetch.js";
 import { readRecentLogs } from "../lib/logger.js";
 import { getRecentEvents, getRunEvents, type AntfarmEvent } from "../installer/events.js";
@@ -26,7 +26,7 @@ import { startDaemon, stopDaemon, getDaemonStatus, isRunning } from "../server/d
 import { claimStep, completeStep, failStep, getStories, peekStep } from "../installer/step-ops.js";
 import { ensureCliSymlink } from "../installer/symlink.js";
 import { runMedicCheck, getMedicStatus, getRecentMedicChecks } from "../medic/medic.js";
-import { installMedicCron, uninstallMedicCron, isMedicCronInstalled } from "../medic/medic-cron.js";
+import { installMedicCron, installMedicCronCli, uninstallMedicCron, uninstallMedicCronCli, isMedicCronInstalled, isMedicCronCliInstalled } from "../medic/medic-cron.js";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -93,7 +93,7 @@ function printUsage() {
       "antfarm workflow install <name>      Install a workflow",
       "antfarm workflow uninstall <name>    Uninstall a workflow (blocked if runs active)",
       "antfarm workflow uninstall --all     Uninstall all workflows (--force to override)",
-      "antfarm workflow run <name> <task>   Start a workflow run",
+      "antfarm workflow run <name> <task>   Start a workflow run (--dry-run to validate only)",
       "antfarm workflow status <query>      Check run status (task substring, run ID prefix)",
       "antfarm workflow runs                List all workflow runs",
       "antfarm workflow resume <run-id>     Resume a failed run from where it left off",
@@ -110,7 +110,8 @@ function printUsage() {
       "antfarm step fail <step-id> <error>  Fail step with retry logic",
       "antfarm step stories <run-id>       List stories for a run",
       "",
-      "antfarm medic install                Install medic watchdog cron",
+      "antfarm medic install                Install medic watchdog cron (LLM-based)",
+      "antfarm medic install-cli            Install medic watchdog (CLI-first, recommended)",
       "antfarm medic uninstall              Remove medic cron",
       "antfarm medic run [--json]           Run medic check now (manual trigger)",
       "antfarm medic status                 Show medic health summary",
@@ -275,7 +276,21 @@ async function main() {
     if (action === "install") {
       const result = await installMedicCron();
       if (result.ok) {
-        console.log("Medic watchdog installed (checks every 5 minutes).");
+        console.log("Medic watchdog installed (LLM-based, checks every 5 minutes).");
+      } else {
+        console.error(`Failed to install medic: ${result.error}`);
+        process.exit(1);
+      }
+      return;
+    }
+
+    if (action === "install-cli") {
+      const result = await installMedicCronCli();
+      if (result.ok) {
+        console.log("Medic watchdog installed (CLI-first mode, recommended).");
+        console.log("  - Runs medic check as CLI (no LLM cost for happy path)");
+        console.log("  - Spawns LLM session only when issues detected");
+        console.log("  - Saves ~50K tokens per check when farm is healthy");
       } else {
         console.error(`Failed to install medic: ${result.error}`);
         process.exit(1);
@@ -671,13 +686,23 @@ async function main() {
 
   if (action === "run") {
     let notifyUrl: string | undefined;
+    let dryRun = false;
     const runArgs = args.slice(3);
     const nuIdx = runArgs.indexOf("--notify-url");
     if (nuIdx !== -1) {
       notifyUrl = runArgs[nuIdx + 1];
       runArgs.splice(nuIdx, 2);
     }
+    const drIdx = runArgs.indexOf("--dry-run");
+    if (drIdx !== -1) {
+      dryRun = true;
+      runArgs.splice(drIdx, 1);
+    }
     const taskTitle = runArgs.join(" ").trim();
+    if (dryRun) {
+      await dryRunWorkflow({ workflowId: target, taskTitle });
+      return;
+    }
     if (!taskTitle) { process.stderr.write("Missing task title.\n"); printUsage(); process.exit(1); }
     const run = await runWorkflow({ workflowId: target, taskTitle, notifyUrl });
     process.stdout.write(

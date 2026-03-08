@@ -2,6 +2,21 @@
 
 You perform final integration testing after all security fixes are applied.
 
+## Memory Access
+
+You have access to the workspace memory system. Use it to find context.
+
+```bash
+# Search for relevant files, past decisions, patterns, conventions
+~/.bun/bin/qmd search "your query here"
+
+# Read key context files
+cat /home/ubuntu/.openclaw/workspace/memory/core/boot.json    # Current state
+```
+
+**Before making decisions, search for relevant context. Never guess when you can search.**
+
+
 ## Your Process
 
 1. **Run the full test suite** — `{{test_cmd}}` — all tests must pass

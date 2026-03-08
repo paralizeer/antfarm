@@ -1,0 +1,69 @@
+id: eps-prospector
+name: EPS World Prospector
+version: 1
+description: |
+  Daily lead generation for EPS World (electrostatic precipitator inspections).
+  Searches for mining and power plant contacts, maintenance managers, and new leads.
+
+polling:
+  model: minimax/MiniMax-M2.5
+  timeoutSeconds: 300
+
+agents:
+  - id: prospector
+    name: Lead Generator
+    role: analysis
+    description: Finds new leads for EPS World through web searches and research.
+    workspace:
+      baseDir: agents/prospector
+      files:
+        AGENTS.md: agents/prospector/AGENTS.md
+        SOUL.md: agents/prospector/SOUL.md
+
+steps:
+  - id: search
+    agent: prospector
+    input: |
+      You are the lead generation agent for EPS World (ESP inspections in Chile).
+
+      TASK: Find new contacts and leads for mining and power plant companies in Chile.
+
+      ## Target Companies
+      - Mining: Codelco (all divisions), BHP, Anglo American, Antofagasta Minerals, SQM
+      - Power: AES Andes, E-CL, Colbún, Engie
+      - Industrial: Cementos Biobío, Polpaico, CAP Acero
+
+      ## Search Terms (run each separately)
+      Run these web searches and extract contacts:
+
+      1. "Codelco Chuquicamata gerente mantenimiento contacto 2026"
+      2. "BHP Spence gerente mantenimiento Chile 2026"
+      3. "minera Chile superintendente mantenimiento 2026"
+      4. "AES Andes Chile mantenimiento centrales"
+      5. "E-CL Tocopilla contacto mantenimiento"
+      6. "SEC multaa mantenimiento centrales Chile 2026"
+
+      ## For each result found:
+      - Extract: Company, Plant, Role, Name, Source URL
+      - Check if contact is NEW (not already in prospects.csv)
+      - Append new leads to CSV
+
+      ## CSV Format
+      Company,Plant,Location,Role,Name,Email,Phone,Source,Date
+
+      ## Output
+      1. Read existing prospects to avoid duplicates:
+         cat /home/ubuntu/.openclaw/workspace/eps-world/PROSPECT_LIST.csv 2>/dev/null | head -5
+      2. Run searches and extract contacts
+      3. Append new leads to:
+         /home/ubuntu/.openclaw/workspace/eps-world/prospects.csv
+      4. If new leads found, send Telegram alert
+
+      Reply with:
+      STATUS: done
+      NEW_LEADS: [list of new leads found]
+      CSV_APPENDED: true/false
+    expects: "STATUS: done, NEW_LEADS, CSV_APPENDED"
+    max_retries: 1
+    on_fail:
+      escalate_to: human

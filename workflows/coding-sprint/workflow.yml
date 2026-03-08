@@ -1,0 +1,349 @@
+id: coding-sprint
+name: Coding Sprint Workflow
+version: 1
+description: |
+  ClawSprint integrated into Antfarm. Planner decomposes a coding goal into ordered tasks.
+  Coder implements each task sequentially on a feature branch. Reviewer checks each task.
+  Final step merges the feature branch to main.
+
+  Designed for local repos (no GitHub required). Works with any repo in the ClawSprint config.
+
+polling:
+  model: minimax/MiniMax-M2.5
+  timeoutSeconds: 600
+
+agents:
+  - id: planner
+    name: Sprint Planner
+    role: analysis
+    description: Decomposes a coding goal into ordered, file-specific coding tasks.
+    workspace:
+      baseDir: agents/planner
+      files:
+        AGENTS.md: agents/planner/AGENTS.md
+        SOUL.md: agents/planner/SOUL.md
+        IDENTITY.md: agents/planner/IDENTITY.md
+
+  - id: coder
+    name: Coder
+    role: coding
+    description: Implements a single coding task on a feature branch, tests, and commits.
+    workspace:
+      baseDir: agents/coder
+      files:
+        AGENTS.md: agents/coder/AGENTS.md
+        SOUL.md: agents/coder/SOUL.md
+        IDENTITY.md: agents/coder/IDENTITY.md
+
+  - id: reviewer
+    name: Code Reviewer
+    role: analysis
+    description: Reviews the coder's commit diff and approves or requests changes.
+    workspace:
+      baseDir: agents/reviewer
+      files:
+        AGENTS.md: agents/reviewer/AGENTS.md
+        SOUL.md: agents/reviewer/SOUL.md
+        IDENTITY.md: agents/reviewer/IDENTITY.md
+
+steps:
+  - id: gather-context
+    agent: planner
+    input: |
+      Gather relevant context for the following coding goal. Do NOT plan yet — just collect information.
+
+      GOAL:
+      {{task}}
+
+      Instructions:
+      1. Search memory for relevant context:
+         ```bash
+         ~/.bun/bin/qmd search "$(echo '{{task}}' | head -c 100)" 2>/dev/null | head -40
+         ```
+      2. Read current workspace state:
+         ```bash
+         cat /home/ubuntu/.openclaw/workspace/memory/core/boot.json 2>/dev/null
+         ```
+      3. Search for any past decisions or lessons related to this goal:
+         ```bash
+         ~/.bun/bin/qmd search "decisions conventions patterns" 2>/dev/null | head -20
+         ```
+      4. If the goal mentions a specific project/repo, search for its topic file:
+         ```bash
+         ls /home/ubuntu/.openclaw/workspace/memory/topics/*.md 2>/dev/null
+         ```
+         Read any relevant topic files.
+
+      Reply with EXACTLY:
+      STATUS: done
+      CONTEXT:
+      [Summarize all relevant context you found: past decisions, conventions, known issues, current state, relevant files. If nothing found, say "No prior context found."]
+    expects: "STATUS: done, CONTEXT"
+    max_retries: 1
+    on_fail:
+      escalate_to: human
+
+  - id: plan
+    agent: planner
+    input: |
+      Decompose the following coding goal into ordered, atomic coding tasks.
+
+      GOAL:
+      {{task}}
+
+      WORKSPACE CONTEXT (from memory search):
+      {{context}}
+
+      Instructions:
+      1. Find the relevant repo from this list:
+         - polygon-arb-bot: /home/ubuntu/.openclaw/workspace/polygon-arb-bot
+         - portal-saas-ncr: /home/ubuntu/.openclaw/workspace/portal-saas-ncr
+         - frontend-nextcore: /home/ubuntu/.openclaw/workspace/frontend-nextcore
+         - protecciones-electricas: /home/ubuntu/.openclaw/workspace/protecciones-electricas
+         - claw-sprint: /home/ubuntu/.openclaw/workspace/claw-sprint
+         - If the goal mentions a different repo, infer the path from the goal text.
+      2. Explore the repo: read key files, understand the stack, find conventions
+      3. Extract relevant file context (read files the tasks will touch)
+      4. Break the goal into 2-8 atomic tasks
+      5. Each task must:
+         - Be implementable in ONE coder session (fits in one context window)
+         - Touch specific files (list them explicitly)
+         - Have a clear, verifiable acceptance criterion
+      6. Order tasks by dependency (schema first, backend, frontend, integration)
+      7. If two tasks touch the same file, the second MUST depend on the first
+
+      Reply with EXACTLY:
+      STATUS: done
+      REPO: /absolute/path/to/repo
+      BRANCH: sprint/short-descriptive-name
+      STORIES_JSON: [
+        {
+          "id": "TASK-1",
+          "title": "Short task title",
+          "description": "Precise description of what to implement",
+          "acceptance_criteria": ["Criterion 1", "Criterion 2"],
+          "files": ["path/to/file.py", "path/to/other.py"],
+          "depends_on": []
+        }
+      ]
+    expects: "STATUS: done, REPO, BRANCH, STORIES_JSON"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
+
+  - id: implement
+    agent: coder
+    type: loop
+    loop:
+      over: stories
+      completion: all_done
+      fresh_session: true
+      verify_each: true
+      verify_step: review
+    input: |
+      Implement the following coding task. You are working on ONE task in a fresh session.
+
+      OVERALL GOAL:
+      {{task}}
+
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+
+      CURRENT TASK:
+      {{current_story}}
+
+      COMPLETED TASKS:
+      {{completed_stories}}
+
+      TASKS REMAINING: {{stories_remaining}}
+
+      REVIEWER FEEDBACK (if retrying):
+      {{verify_feedback}}
+
+      PROGRESS LOG:
+      {{progress}}
+
+      Instructions:
+
+      ### 1. Setup workspace
+      ```bash
+      cd {{repo}}
+      git fetch origin 2>/dev/null || true
+      # Create branch if it doesn't exist, otherwise just check it out
+      git checkout {{branch}} 2>/dev/null || git checkout -b {{branch}}
+      # Pull latest if branch already existed
+      git pull origin {{branch}} 2>/dev/null || true
+      ```
+
+      ### 2. Read context
+      - Read the files listed in CURRENT TASK
+      - Check progress log for decisions made in previous tasks
+      - Understand existing patterns before writing code
+
+      ### 3. Implement
+      - Make ONLY the changes described in CURRENT TASK
+      - Follow existing code style
+      - Handle errors and edge cases
+      - Keep changes minimal and focused
+
+      ### 4. Test
+      Try to run tests or at minimum validate syntax:
+      ```bash
+      cd {{repo}}
+      # Python projects
+      python -m pytest tests/ -x -q 2>&1 | tail -20 || python -m py_compile $(git diff --name-only HEAD 2>/dev/null | grep '\.py$') 2>&1 || echo "NO_TESTS"
+      # Node projects
+      npm test 2>&1 | tail -20 || npx tsc --noEmit 2>&1 | tail -20 || echo "NO_TESTS"
+      ```
+
+      ### 5. Commit
+      ```bash
+      cd {{repo}}
+      git add -A
+      git commit -m "sprint: {{current_story.title}}"
+      ```
+
+      ### 6. Append to progress log
+      ```bash
+      echo "## TASK: {{current_story.id}} - {{current_story.title}}
+      - Files changed: [list]
+      - What was done: [summary]
+      - Test result: [PASSED/FAILED/NO_TESTS]
+      - Decisions: [any important choices made]
+      " >> {{repo}}/progress-{{run_id}}.txt
+      ```
+
+      Reply with:
+      STATUS: done
+      CHANGES: Bullet list of what you changed
+      TEST_RESULT: PASSED | FAILED | NO_TESTS | SYNTAX_OK
+      COMMIT: git commit hash (from `git rev-parse HEAD`)
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
+
+  - id: review
+    agent: reviewer
+    input: |
+      Review the coder's work on this task.
+
+      OVERALL GOAL:
+      {{task}}
+
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+      COMMIT: {{commit}}
+
+      CURRENT TASK:
+      {{current_story}}
+
+      CODER CHANGES:
+      {{changes}}
+
+      TEST RESULT: {{test_result}}
+
+      PROGRESS LOG:
+      {{progress}}
+
+      Instructions:
+      1. Get the diff:
+         ```bash
+         cd {{repo}}
+         git show {{commit}} --stat
+         git show {{commit}} -- {{current_story.files}}
+         ```
+      2. Check against acceptance criteria in CURRENT TASK
+      3. Review for:
+         - **Correctness** — Does it do what was asked?
+         - **Safety** — No secrets, no destructive ops, no infinite loops
+         - **Scope** — Stayed within task boundaries (no surprise refactors)
+         - **Style** — Follows existing patterns
+         - **Tests** — If TEST_RESULT is FAILED, reject unless trivial
+      4. If approved: reply STATUS: done
+      5. If changes needed: reply STATUS: retry with specific issues
+
+      ## Check for Bot Reviews
+      Before approving, check for existing reviews from AI bots (Copilot, Gemini, etc.):
+      ```
+      gh pr view {{pr_number}} --json reviews
+      ```
+      If there are pending comments or suggestions from bot reviews, you MUST either:
+      1. Address them in your review (request changes if significant), OR
+      2. Acknowledge them in your approval if they're minor/optional
+
+      Reply with:
+      STATUS: done
+      VERIFIED: What you confirmed
+
+      Or if issues:
+      STATUS: retry
+      ISSUES:
+      - Specific issue 1 (file, line, what's wrong, how to fix)
+      - Specific issue 2
+    expects: "STATUS: done"
+    on_fail:
+      retry_step: implement
+      max_retries: 2
+      on_exhausted:
+        escalate_to: human
+
+  - id: merge
+    agent: coder
+    input: |
+      All tasks are implemented and reviewed. Merge the feature branch to main.
+
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+      CHANGES: {{changes}}
+
+      Instructions:
+      ```bash
+      cd {{repo}}
+      git checkout main
+      git pull origin main 2>/dev/null || true
+      git merge --no-ff {{branch}} -m "sprint: merge {{branch}} - {{task}}"
+      ```
+
+      If merge conflicts occur, resolve them conserving the feature branch changes.
+
+      After merging:
+      ```bash
+      cd {{repo}}
+      # Clean up progress file
+      rm -f progress-{{run_id}}.txt
+      git add -A && git commit -m "sprint: cleanup progress log" 2>/dev/null || true
+      ```
+
+      Reply with:
+      STATUS: done
+      MERGE_COMMIT: git commit hash of the merge commit
+      SUMMARY: Brief summary of everything that was done
+    expects: "STATUS: done"
+    on_fail:
+      escalate_to: human
+
+  - id: report
+    agent: planner
+    input: |
+      Generate a final sprint report.
+
+      GOAL: {{task}}
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+      MERGE_COMMIT: {{merge_commit}}
+      SUMMARY: {{summary}}
+      CHANGES: {{changes}}
+
+      Write a concise sprint completion report covering:
+      - What was accomplished
+      - Key changes made
+      - Any issues encountered
+      - Final status
+
+      Reply with:
+      STATUS: done
+      REPORT: [your report]
+    expects: "STATUS: done"
+    on_fail:
+      escalate_to: human
