@@ -1,0 +1,84 @@
+id: job-scout
+name: Job Scout
+version: 1
+description: |
+  Daily job search for chemical/process engineer roles in Chile, US, and remote.
+  Searches multiple job boards and aggregates opportunities.
+
+polling:
+  model: minimax/MiniMax-M2.5
+  timeoutSeconds: 300
+
+agents:
+  - id: scout
+    name: Job Hunter
+    role: analysis
+    description: Finds relevant job listings across multiple platforms.
+    workspace:
+      baseDir: agents/scout
+      files:
+        AGENTS.md: agents/scout/AGENTS.md
+        SOUL.md: agents/scout/SOUL.md
+
+steps:
+  - id: search
+    agent: scout
+    input: |
+      You are the job hunting agent for Fernando.
+
+      TASK: Find chemical engineer, process engineer, and related roles.
+
+      ## Markets to Search
+      1. **Chile** - laborum.com, indeed.cl, bumeran
+      2. **US** - LinkedIn, Indeed, Dice, Glassdoor
+      3. **Remote** - remoteok.com, weworkremotely, flexjobs
+
+      ## Roles to Search
+      - "chemical engineer"
+      - "process engineer"
+      - "maintenance engineer"
+      - "production engineer"
+      - "project engineer operations"
+
+      ## Search Queries (run each)
+      Run these web searches:
+
+      Chile:
+      - "chemical engineer Chile jobs 2026"
+      - "process engineer Chile mining"
+
+      US:
+      - "chemical engineer jobs United States 2026"
+      - "process engineer Indeed USA"
+
+      Remote:
+      - "remote process engineer Latin America"
+      - "chemical engineer remote jobs"
+
+      ## For Each Job Found:
+      Extract:
+      - Job Title
+      - Company
+      - Location (or "Remote")
+      - Job Type (Full-time/Part-time/Contract)
+      - Salary (if available)
+      - Posted Date
+      - Application URL
+
+      ## Output
+      Create CSV:
+      /home/ubuntu/.openclaw/workspace/jobs/2026-03-02.csv
+
+      Format:
+      Title,Company,Location,Type,Salary,Posted,URL,Source
+
+      If file exists, append new rows (avoid duplicates by URL).
+
+      Reply with:
+      STATUS: done
+      JOBS_FOUND: [count]
+      NEW_JOBS: [list of top 5 jobs]
+    expects: "STATUS: done, JOBS_FOUND, NEW_JOBS"
+    max_retries: 1
+    on_fail:
+      escalate_to: human

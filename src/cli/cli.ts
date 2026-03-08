@@ -18,7 +18,7 @@ try {
 import { installWorkflow } from "../installer/install.js";
 import { uninstallAllWorkflows, uninstallWorkflow, checkActiveRuns } from "../installer/uninstall.js";
 import { getWorkflowStatus, listRuns, stopWorkflow } from "../installer/status.js";
-import { runWorkflow } from "../installer/run.js";
+import { runWorkflow, dryRunWorkflow } from "../installer/run.js";
 import { listBundledWorkflows } from "../installer/workflow-fetch.js";
 import { readRecentLogs } from "../lib/logger.js";
 import { getRecentEvents, getRunEvents, type AntfarmEvent } from "../installer/events.js";
@@ -93,7 +93,7 @@ function printUsage() {
       "antfarm workflow install <name>      Install a workflow",
       "antfarm workflow uninstall <name>    Uninstall a workflow (blocked if runs active)",
       "antfarm workflow uninstall --all     Uninstall all workflows (--force to override)",
-      "antfarm workflow run <name> <task>   Start a workflow run",
+      "antfarm workflow run <name> <task>   Start a workflow run (--dry-run to validate only)",
       "antfarm workflow status <query>      Check run status (task substring, run ID prefix)",
       "antfarm workflow runs                List all workflow runs",
       "antfarm workflow resume <run-id>     Resume a failed run from where it left off",
@@ -671,13 +671,23 @@ async function main() {
 
   if (action === "run") {
     let notifyUrl: string | undefined;
+    let dryRun = false;
     const runArgs = args.slice(3);
     const nuIdx = runArgs.indexOf("--notify-url");
     if (nuIdx !== -1) {
       notifyUrl = runArgs[nuIdx + 1];
       runArgs.splice(nuIdx, 2);
     }
+    const drIdx = runArgs.indexOf("--dry-run");
+    if (drIdx !== -1) {
+      dryRun = true;
+      runArgs.splice(drIdx, 1);
+    }
     const taskTitle = runArgs.join(" ").trim();
+    if (dryRun) {
+      await dryRunWorkflow({ workflowId: target, taskTitle });
+      return;
+    }
     if (!taskTitle) { process.stderr.write("Missing task title.\n"); printUsage(); process.exit(1); }
     const run = await runWorkflow({ workflowId: target, taskTitle, notifyUrl });
     process.stdout.write(

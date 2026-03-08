@@ -27,13 +27,13 @@ describe("two-phase-integration", () => {
     });
   });
 
-  // AC2: Without polling config, defaults to "default" model
+  // AC2: Without polling config, defaults to minimax model
   // (The default polling MODEL is set in setupAgentCrons payload, not in the prompt itself.
   //  The prompt contains the WORK model. We verify default work model here.)
   describe("defaults without polling config", () => {
-    it("uses 'default' work model when no workModel specified", () => {
+    it("uses minimax work model when no workModel specified", () => {
       const prompt = buildPollingPrompt("feature-dev", "developer");
-      assert.ok(prompt.includes('"default"'), "default work model");
+      assert.ok(prompt.includes('"minimax/MiniMax-M2.5"'), "default work model");
     });
 
     it("agent id uses namespaced format (workflowId_agentId)", () => {

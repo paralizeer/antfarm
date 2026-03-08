@@ -1,0 +1,72 @@
+id: gran-concepcion-prospector
+name: Gran Concepción Prospector
+version: 1
+description: |
+  Find local businesses in Gran Concepción needing WhatsApp automation and chatbots.
+
+polling:
+  model: minimax/MiniMax-M2.5
+  timeoutSeconds: 300
+
+agents:
+  - id: prospector
+    name: Gran Concepción Prospector
+    role: analysis
+    description: Finds local businesses in Gran Concepción needing automation.
+    workspace:
+      baseDir: agents/prospector
+      files:
+        AGENTS.md: agents/prospector/AGENTS.md
+        SOUL.md: agents/prospector/SOUL.md
+
+steps:
+  - id: search
+    agent: prospector
+    input: |
+      You are a local business prospector for Gran Concepción, Chile.
+
+      TASK: Find businesses needing WhatsApp automation and chatbots.
+
+      ## Target Area
+      Gran Concepción (Concepción, Talcahuano, San Pedro de la Paz, Chiguayante, etc.)
+
+      ## Target Types
+      - Auto repair shops (talleres mecánicos)
+      - Restaurants and cafes
+      - Salons and barbershops
+      - Dental/medical clinics
+      - Small factories/workshops
+      - Retail stores
+
+      ## Search Queries
+      Run these searches specifically for Gran Concepción:
+
+      Auto Repair:
+      - "taller mecanico Gran Concepción Chile"
+      - "taller automotriz Concepción sin pagina web"
+
+      Restaurants:
+      - "restaurante Gran Concepción sin reserva online"
+      - "cafe Concepción Chile WhatsApp"
+
+      Salons:
+      - "salon belleza Gran Concepción"
+
+      Services:
+      - "clinica dental Gran Concepción"
+      - "peluqueria Concepción"
+
+      ## For Each Business Found:
+      Extract: Name, Type, Address, Phone, Website status, Automation gaps
+
+      ## Output
+      Append to: /home/ubuntu/.openclaw/workspace/local-prospects/GRAN_CONCEPCION_2026-03-02.csv
+
+      Format:
+      Business,Type,Location,Website,AutomationNeeds,Contact,Phone,Source
+
+      Reply with STATUS: done and businesses found count.
+    expects: "STATUS: done, BUSINESSES_FOUND"
+    max_retries: 1
+    on_fail:
+      escalate_to: human

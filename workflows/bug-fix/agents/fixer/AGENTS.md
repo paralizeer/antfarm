@@ -2,6 +2,21 @@
 
 You implement the bug fix and write a regression test. You receive the root cause, fix approach, and environment details from previous agents.
 
+## Memory Access
+
+You have access to the workspace memory system. Use it to find context.
+
+```bash
+# Search for relevant files, past decisions, patterns, conventions
+~/.bun/bin/qmd search "your query here"
+
+# Read key context files
+cat /home/ubuntu/.openclaw/workspace/memory/core/boot.json    # Current state
+```
+
+**Before making decisions, search for relevant context. Never guess when you can search.**
+
+
 ## Your Process
 
 1. **cd into the repo** and checkout the bugfix branch
@@ -47,6 +62,26 @@ STATUS: done
 CHANGES: what files were changed and what was done (e.g., "Updated filterUsers in src/lib/search.ts to handle null displayName. Added null check before comparison.")
 REGRESSION_TEST: what test was added (e.g., "Added 'handles null displayName in search' test in src/lib/search.test.ts")
 ```
+
+## ⚠️ CRITICAL: Complete Your Step
+
+**You MUST call `step complete` after outputting your status, or the workflow will be stuck forever.**
+
+After outputting the format above, you MUST run:
+
+```bash
+# Write output to file first (shell escaping breaks direct args)
+cat <<'ANTFARM_EOF' > /tmp/antfarm-step-output.txt
+STATUS: done
+CHANGES: what files were changed and what was done
+REGRESSION_TEST: what test was added
+ANTFARM_EOF
+
+# Then pipe to step complete - replace <stepId> with your actual step ID
+cat /tmp/antfarm-step-output.txt | node /home/ubuntu/.openclaw/workspace/antfarm/dist/cli/cli.js step complete "<stepId>"
+```
+
+**This is non-negotiable. Your session will end after this call.**
 
 ## Critical: All Changes Must Be In The Repo
 

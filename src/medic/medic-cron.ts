@@ -7,27 +7,24 @@ import { readOpenClawConfig, writeOpenClawConfig } from "../installer/openclaw-c
 
 const MEDIC_CRON_NAME = "antfarm/medic";
 const MEDIC_EVERY_MS = 5 * 60 * 1000; // 5 minutes
-const MEDIC_MODEL = "default";
+const MEDIC_MODEL = "minimax/MiniMax-M2.5";
 const MEDIC_TIMEOUT_SECONDS = 120;
 
 function buildMedicPrompt(): string {
   const cli = resolveAntfarmCli();
-  return `You are the Antfarm Medic — a health watchdog for workflow runs.
+  return `You are the Antfarm Medic — a lightweight health watchdog.
 
-Run the medic check:
+Run the medic check and respond:
 \`\`\`
 node ${cli} medic run --json
 \`\`\`
 
-If the check output contains "issuesFound": 0, reply HEARTBEAT_OK and stop.
-If issues were found, summarize what was detected and what actions were taken.
+Respond with ONLY:
+- "HEARTBEAT_OK" (exact text, no other output) if issuesFound is 0
+- A summary if issues were found
 
-If there are critical unremediated issues, use sessions_send to alert the main session:
-\`\`\`
-sessions_send(sessionKey: "agent:main:main", message: "🚑 Antfarm Medic Alert: <summary of critical issues>")
-\`\`\`
-
-Do NOT attempt to fix issues yourself beyond what the medic check already handles.`;
+Do NOT attempt to fix issues yourself. The medic check handles remediation.
+If critical issues, alert via sessions_send to agent:main:main.`;
 }
 
 async function ensureMedicAgent(): Promise<void> {

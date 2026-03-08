@@ -256,7 +256,7 @@ export async function checkCronToolAvailable(): Promise<{ ok: boolean; error?: s
   }
 }
 
-export async function listCronJobs(): Promise<{ ok: boolean; jobs?: Array<{ id: string; name: string }>; error?: string }> {
+export async function listCronJobs(): Promise<{ ok: boolean; jobs?: Array<{ id: string; name: string; lastStatus?: string; consecutiveErrors?: number; enabled?: boolean }>; error?: string }> {
   // --- Try HTTP first ---
   const httpResult = await listCronJobsHTTP();
   if (httpResult !== null) return httpResult;
@@ -273,7 +273,7 @@ export async function listCronJobs(): Promise<{ ok: boolean; jobs?: Array<{ id: 
 }
 
 /** HTTP-only list. Returns null on 404/network error. */
-async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: string; name: string }>; error?: string } | null> {
+async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: string; name: string; lastStatus?: string; consecutiveErrors?: number; enabled?: boolean }>; error?: string } | null> {
   const gateway = await getGatewayConfig();
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -296,12 +296,18 @@ async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: str
       return { ok: false, error: result.error?.message ?? "Unknown error" };
     }
 
-    let jobs: Array<{ id: string; name: string }> = [];
+    let jobs: Array<{ id: string; name: string; lastStatus?: string; consecutiveErrors?: number; enabled?: boolean }> = [];
     const content = result.result?.content;
     if (Array.isArray(content) && content[0]?.text) {
       try {
         const parsed = JSON.parse(content[0].text);
-        jobs = parsed.jobs ?? [];
+        jobs = (parsed.jobs ?? []).map((j: any) => ({
+          id: j.id,
+          name: j.name,
+          lastStatus: j.state?.lastStatus,
+          consecutiveErrors: j.state?.consecutiveErrors,
+          enabled: j.enabled,
+        }));
       } catch { /* fallback */ }
     }
     if (jobs.length === 0) {
@@ -364,6 +370,49 @@ export async function deleteAgentCronJobs(namePrefix: string): Promise<void> {
   }
 }
 
+/**
+ * Disable a cron job by ID (circuit breaker action).
+ */
+export async function disableCronJob(jobId: string): Promise<{ ok: boolean; error?: string }> {
+  // --- Try HTTP first ---
+  const httpResult = await disableCronJobHTTP(jobId);
+  if (httpResult !== null) return httpResult;
+
+  // --- CLI fallback ---
+  try {
+    await runCli(["cron", "disable", jobId, "--json"]);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+  }
+}
+
+/** HTTP-only disable. Returns null on 404/network error. */
+async function disableCronJobHTTP(jobId: string): Promise<{ ok: boolean; error?: string } | null> {
+  const gateway = await getGatewayConfig();
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
+
+    const response = await fetch(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ tool: "cron", args: { action: "disable", id: jobId }, sessionKey: "agent:main:main" }),
+    });
+
+    if (isTransientGatewayFailure(response.status)) return null;
+
+    if (!response.ok) {
+      return { ok: false, error: `Gateway returned ${response.status}` };
+    }
+
+    const result = await response.json();
+    return result.ok ? { ok: true } : { ok: false, error: result.error?.message ?? "Unknown error" };
+  } catch {
+    return null;
+  }
+}
+
 export async function sendSessionMessage(params: { sessionKey: string; message: string }): Promise<{ ok: boolean; error?: string }> {
   const payload = {
     tool: "sessions_send",
@@ -418,5 +467,83 @@ export async function sendSessionMessage(params: { sessionKey: string; message: 
     return { ok: true };
   } catch (err) {
     return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+  }
+}
+
+/**
+ * Kill a gateway session by session key.
+ * Sends a termination message to the session to gracefully shut it down.
+ */
+export async function killSession(sessionKey: string): Promise<{ ok: boolean; error?: string }> {
+  const gateway = await getGatewayConfig();
+  
+  // Try HTTP first - use the gateway call to send a kill message
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
+
+    // Try calling the sessions API to kill the session
+    const response = await fetch(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        tool: "sessions_send",
+        args: {
+          action: "kill",
+          sessionKey: sessionKey,
+        },
+        sessionKey: "agent:main:main",
+      }),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.ok) return { ok: true };
+      // If the tool doesn't exist or failed, try alternative approach
+    }
+    
+    // If the above didn't work, try a different approach - send a termination signal
+    const terminateResponse = await fetch(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        tool: "exec",
+        args: {
+          command: `openclaw sessions kill ${sessionKey}`,
+        },
+        sessionKey: "agent:main:main",
+      }),
+    });
+    
+    if (terminateResponse.ok) {
+      return { ok: true };
+    }
+  } catch {
+    // Fall through to CLI fallback
+  }
+
+  // --- Fallback to CLI ---
+  try {
+    // Try to kill the session via CLI
+    await runCli(["sessions", "kill", sessionKey, "--json"]);
+    return { ok: true };
+  } catch {
+    // sessions kill might not be a valid command, try using message to signal exit
+    try {
+      await runCli([
+        "tool",
+        "run",
+        "--tool",
+        "sessions_send",
+        "--session",
+        sessionKey,
+        "--json",
+        "--message",
+        "SESSION_KILL_REQUESTED: This session has been terminated by antfarm. Please stop immediately.",
+      ]);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: `Failed to kill session: ${err}` };
+    }
   }
 }

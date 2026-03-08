@@ -9,6 +9,7 @@ export type MedicActionType =
   | "reset_step"
   | "fail_run"
   | "teardown_crons"
+  | "disable_cron"
   | "none";
 
 export interface MedicFinding {
@@ -157,6 +158,11 @@ export function checkDeadRuns(): MedicFinding[] {
 // ── Check: Orphaned Crons ───────────────────────────────────────────
 
 /**
+ * Configuration for circuit breaker: number of consecutive errors before auto-disabling a cron.
+ */
+const CRON_CIRCUIT_BREAKER_THRESHOLD = 5;
+
+/**
  * Check if agent crons exist for workflows with zero active runs.
  * Returns workflow IDs that should have their crons torn down.
  *
@@ -188,6 +194,42 @@ export function checkOrphanedCrons(
         severity: "warning",
         message: `${jobCount} cron job(s) for workflow "${wfId}" still running but no active runs exist`,
         action: "teardown_crons",
+        remediated: false,
+      });
+    }
+  }
+
+  return findings;
+}
+
+// ── Check: Failing Cron Jobs (Circuit Breaker) ──────────────────────
+
+/**
+ * Find cron jobs with too many consecutive errors and auto-disable them.
+ * This prevents wasted tokens on persistently failing cron jobs.
+ * 
+ * NOTE: This check requires the list of current cron jobs with status info,
+ * since reading crons is async (gateway API). The medic runner handles this.
+ */
+export function checkFailingCrons(
+  cronJobs: Array<{ id: string; name: string; consecutiveErrors?: number; enabled?: boolean }>,
+): MedicFinding[] {
+  const findings: MedicFinding[] = [];
+
+  for (const job of cronJobs) {
+    // Skip already disabled crons
+    if (job.enabled === false) continue;
+    
+    // Only check antfarm cron jobs
+    if (!job.name.startsWith("antfarm/")) continue;
+    
+    const errors = job.consecutiveErrors ?? 0;
+    if (errors >= CRON_CIRCUIT_BREAKER_THRESHOLD) {
+      findings.push({
+        check: "failing_crons",
+        severity: "warning",
+        message: `Cron job "${job.name}" has ${errors} consecutive errors — circuit breaker auto-disabling`,
+        action: "disable_cron",
         remediated: false,
       });
     }

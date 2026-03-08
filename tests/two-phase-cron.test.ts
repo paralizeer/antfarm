@@ -16,7 +16,7 @@ describe("two-phase-cron-setup", () => {
 
     it("includes the default work model when none specified", () => {
       const prompt = buildPollingPrompt("feature-dev", "developer");
-      assert.ok(prompt.includes('"default"'), "should include default work model");
+      assert.ok(prompt.includes('"minimax/MiniMax-M2.5"'), "should include default minimax work model");
     });
 
     it("includes custom work model when specified", () => {
@@ -44,14 +44,14 @@ describe("two-phase-cron-setup", () => {
     // These tests verify the exported constants and prompt builder behavior
     // that setupAgentCrons depends on
 
-    it("default work model is 'default'", async () => {
+    it("default work model is minimax", async () => {
       // We verify this through the module — the constant is used in setupAgentCrons
       // The polling prompt doesn't contain the polling model (that's in the cron payload)
       // but we can verify the work model default
       const prompt = buildPollingPrompt("test", "agent");
       // The polling prompt contains the WORK model, not the polling model
       // The polling model is set in the cron job payload by setupAgentCrons
-      assert.ok(prompt.includes('"default"'), "default work model in prompt");
+      assert.ok(prompt.includes('"minimax/MiniMax-M2.5"'), "default work model in prompt");
     });
 
     it("polling prompt uses correct agent id format", () => {
