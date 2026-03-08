@@ -851,7 +851,18 @@ function handleVerifyEachCompletion(
   db.prepare("UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(context), verifyStep.run_id);
 
   try {
-    return checkLoopContinuation(verifyStep.run_id, loopStepId);
+    const result = checkLoopContinuation(verifyStep.run_id, loopStepId);
+
+    // If there are more stories pending (loop step set to pending), mark verify step as done
+    // so it doesn't block the loop step from being claimed (waiting status blocks claim query)
+    if (result.advanced === false && result.runCompleted === false) {
+      const loopStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(loopStepId) as { status: string } | undefined;
+      if (loopStep?.status === "pending") {
+        db.prepare("UPDATE steps SET status = 'done', updated_at = datetime('now') WHERE id = ?").run(verifyStep.id);
+      }
+    }
+
+    return result;
   } catch (err) {
     logger.error(`checkLoopContinuation failed, recovering: ${String(err)}`, { runId: verifyStep.run_id });
     // Ensure loop step is at least pending so cron can retry
