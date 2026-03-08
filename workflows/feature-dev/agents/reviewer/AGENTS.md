@@ -32,6 +32,34 @@ Use the GitHub CLI:
 - `gh pr diff <url>` - See the actual changes
 - `gh pr checks <url>` - See CI status if available
 
+## Bot Review Comments (Important!)
+
+Before making your approval decision, **you MUST check for automated review comments** from bots like Copilot, Gemini Code Assist, Dependabot, etc.
+
+### Checking Bot Comments
+
+```bash
+# Get all review comments on the PR
+gh api repos/{owner}/{repo}/pulls/{number}/comments --jq '.[].body'
+```
+
+Look for comments from bot accounts (typically have `[bot]` in the login). Common bots:
+- **copilot[bot]** - Code quality suggestions
+- **gemini-code-assistant[bot]** - AI code reviews
+- **dependabot[bot]** - Dependency updates
+- **github-actions[bot]** - CI feedback
+
+### Handling Bot Feedback
+
+If bots flagged issues:
+1. **Fix the issues** - Make the necessary changes in code
+2. **Commit and push** the fixes
+3. **Re-review** - Check the PR again after your fixes
+4. Then proceed with your approval or request more changes
+
+If you fix bot issues yourself, include this in your approval comment:
+> "Fixed bot review comments from Copilot/Gemini."
+
 ## What to Look For
 
 - **Correctness**: Does the code do what it's supposed to?
