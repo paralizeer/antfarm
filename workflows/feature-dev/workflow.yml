@@ -193,7 +193,7 @@ steps:
       STATUS: done
       CHANGES: what you implemented
       TESTS: what tests you wrote
-    expects: "STATUS: done"
+    expects: "STATUS: done, CHANGES, TESTS"
     max_retries: 2
     on_fail:
       escalate_to: human
@@ -252,7 +252,7 @@ steps:
       STATUS: retry
       ISSUES:
       - What's missing or incomplete
-    expects: "STATUS: done"
+    expects: "STATUS: done, VERIFIED"
     on_fail:
       retry_step: implement
       max_retries: 2
@@ -291,7 +291,7 @@ steps:
       STATUS: retry
       FAILURES:
       - Specific test failures or bugs found
-    expects: "STATUS: done"
+    expects: "STATUS: done, RESULTS"
     on_fail:
       retry_step: implement
       max_retries: 2
@@ -324,7 +324,7 @@ steps:
       Reply with:
       STATUS: done
       PR: URL to the pull request
-    expects: "STATUS: done"
+    expects: "STATUS: done, PR"
     on_fail:
       escalate_to: human
 
@@ -381,7 +381,7 @@ steps:
       DECISION: changes_requested
       FEEDBACK:
       - What needs to change
-    expects: "STATUS: done"
+    expects: "STATUS: done, DECISION"
     on_fail:
       retry_step: implement
       max_retries: 3

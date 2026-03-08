@@ -289,8 +289,24 @@ export function cleanupAbandonedSteps(): void {
           const verifyStatus = db.prepare(
             "SELECT status FROM steps WHERE run_id = ? AND step_id = ? LIMIT 1"
           ).get(step.run_id, loopConfig.verifyStep) as { status: string } | undefined;
+          // If verify step is pending/running, check if there are pending stories to process
           if (verifyStatus?.status === "pending" || verifyStatus?.status === "running") {
-            continue;
+            const pendingStory = db.prepare(
+              "SELECT id FROM stories WHERE run_id = ? AND status = 'pending' LIMIT 1"
+            ).get(step.run_id) as { id: string } | undefined;
+            // If there are pending stories, set loop step to pending so fixer can continue
+            if (pendingStory) {
+              db.prepare(
+                "UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?"
+              ).run(step.id);
+              logger.info(`Reset loop step to pending (verify step ${verifyStatus.status}, ${step.run_id})`, { stepId: step.step_id });
+              continue;
+            }
+            // No pending stories means verification is still in progress or all done
+            // If verify step is running, don't reset; if pending, let it continue
+            if (verifyStatus.status === "running") {
+              continue;
+            }
           }
         }
       } catch {
@@ -835,7 +851,18 @@ function handleVerifyEachCompletion(
   db.prepare("UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(context), verifyStep.run_id);
 
   try {
-    return checkLoopContinuation(verifyStep.run_id, loopStepId);
+    const result = checkLoopContinuation(verifyStep.run_id, loopStepId);
+
+    // If there are more stories pending (loop step set to pending), mark verify step as done
+    // so it doesn't block the loop step from being claimed (waiting status blocks claim query)
+    if (result.advanced === false && result.runCompleted === false) {
+      const loopStep = db.prepare("SELECT status FROM steps WHERE id = ?").get(loopStepId) as { status: string } | undefined;
+      if (loopStep?.status === "pending") {
+        db.prepare("UPDATE steps SET status = 'done', updated_at = datetime('now') WHERE id = ?").run(verifyStep.id);
+      }
+    }
+
+    return result;
   } catch (err) {
     logger.error(`checkLoopContinuation failed, recovering: ${String(err)}`, { runId: verifyStep.run_id });
     // Ensure loop step is at least pending so cron can retry
